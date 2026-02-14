@@ -1,0 +1,106 @@
+# ═══════════════════════════════════════════════════════════════════════
+# gittyup.yaml — Multi-Repo Orchestration Manifest
+# ═══════════════════════════════════════════════════════════════════════
+
+# Base directory where repos are cloned (relative to this file, or absolute)
+workspace: ~/projects
+
+# ─── Repo Groups ──────────────────────────────────────────────────────
+groups:
+  frontend:
+    description: Client-facing applications
+    repos:
+      - name: web-app
+        path: ./web-app
+        remote: origin
+        url: https://github.com/myorg/web-app.git
+        branches:
+          dev: develop
+          staging: staging
+          prod: main
+
+      - name: mobile-app
+        path: ./mobile-app
+        remote: origin
+        url: https://github.com/myorg/mobile-app.git
+        branches:
+          dev: develop
+          staging: staging
+          prod: main
+
+  services:
+    description: Backend microservices
+    repos:
+      - name: api-gateway
+        path: ./api-gateway
+        remote: origin
+        url: https://github.com/myorg/api-gateway.git
+        branches:
+          dev: develop
+          staging: staging
+          prod: main
+
+      - name: auth-service
+        path: ./auth-service
+        remote: origin
+        url: https://github.com/myorg/auth-service.git
+        branches:
+          dev: develop
+          staging: staging
+          prod: main
+
+      - name: data-service
+        path: ./data-service
+        remote: origin
+        url: https://github.com/myorg/data-service.git
+        branches:
+          dev: develop
+          staging: staging
+          prod: main
+
+  shared:
+    description: Shared libraries and configs
+    repos:
+      - name: shared-types
+        path: ./shared-types
+        remote: origin
+        url: https://github.com/myorg/shared-types.git
+        branches:
+          dev: develop
+          staging: release
+          prod: main
+
+      - name: eslint-config
+        path: ./eslint-config
+        remote: origin
+        url: https://github.com/myorg/eslint-config.git
+        branches:
+          dev: develop
+          prod: main
+
+# ─── Settings ─────────────────────────────────────────────────────────
+settings:
+  # AI conflict resolution mode:
+  #   auto    — Claude attempts to auto-merge, falls back to manual
+  #   suggest — Claude proposes a resolution, you approve/reject/edit
+  #   manual  — Standard git resolution, AI only on explicit request
+  ai_mode: suggest
+
+  github:
+    token_env: GITHUB_TOKEN    # env var containing your GitHub PAT
+    default_org: myorg
+
+  # Branch prefix for conflict escalation branches
+  conflict_branch_prefix: conflict-resolution
+
+  # PR body template (supports {{operation}}, {{source_branch}},
+  # {{target_branch}}, {{repo_name}}, {{commit_count}})
+  pr_template: |
+    ## {{operation}}: `{{source_branch}}` → `{{target_branch}}`
+
+    **Repo:** {{repo_name}}
+    **Operation:** {{operation}}
+    **Commits:** {{commit_count}}
+
+    ---
+    _Automated by [gittyup](https://github.com/gittyup/gittyup)_

@@ -1,0 +1,33 @@
+export { ManifestManager } from './manifest.js';
+export {
+  ManifestSchema,
+  ManifestSettingsSchema,
+  RepoConfigSchema,
+  GroupConfigSchema,
+  AiModeSchema,
+  BranchMapSchema,
+  GitHubSettingsSchema,
+} from './schema.js';
+export type {
+  Manifest,
+  ManifestSettings,
+  RepoConfig,
+  GroupConfig,
+  RepoGroup,
+  AiMode,
+  BranchMap,
+  GitHubSettings,
+  MergeTarget,
+  CherryPickTarget,
+  RepoBranchState,
+  RepoState,
+  ConflictFile,
+  ConflictSession,
+  OperationStatus,
+  OperationResult,
+  PullRequestConfig,
+  PullRequestResult,
+  BranchSideInfo,
+  PRInfo,
+  CompareRow,
+} from './schema.js';
