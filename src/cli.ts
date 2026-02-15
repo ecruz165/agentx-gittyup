@@ -299,7 +299,7 @@ program
     let state: State = 'mode';
     let selectionMode: 'all' | 'folder' | 'individual' = 'all';
     let selected: DiscoveredRepo[] = [];
-    let groupName = '';
+    let repoGroupMap = new Map<string, string>();
     let repoTags = new Map<string, string[]>();
     const manifest = new ManifestManager();
 
@@ -415,59 +415,111 @@ program
           }
 
           case 'group': {
-            const existingGroups = manifest.getGroups().map((g) => g.name);
+            const availableGroups = new Set(manifest.getGroups().map((g) => g.name));
 
-            if (existingGroups.length > 0) {
-              const groupChoice = await selectWithBack({
-                message: 'Add to which group?',
-                choices: [
-                  ...existingGroups.map((g) => ({ name: g, value: g })),
-                  { name: chalk.green('+ Create new group'), value: '__NEW__' },
-                ],
+            // Initialize all selected repos as "Undefined"
+            repoGroupMap = new Map<string, string>();
+            for (const repo of selected) {
+              repoGroupMap.set(repo.name, 'Undefined');
+            }
+
+            let groupDone = false;
+            let wentBack = false;
+
+            while (!groupDone && !wentBack) {
+              // Build assignment status display
+              const grouped = new Map<string, string[]>();
+              for (const [repoName, group] of repoGroupMap) {
+                if (!grouped.has(group)) grouped.set(group, []);
+                grouped.get(group)!.push(repoName);
+              }
+
+              const undefinedRepos = grouped.get('Undefined') ?? [];
+              const allAssigned = undefinedRepos.length === 0;
+
+              console.log(chalk.bold('\n  Group Assignments:'));
+              // Show Undefined group first (id 0)
+              if (undefinedRepos.length > 0) {
+                console.log(chalk.yellow(`  0. Undefined (${undefinedRepos.length} repos)`));
+                for (const r of undefinedRepos) console.log(chalk.dim(`     • ${r}`));
+              } else {
+                console.log(chalk.dim('  0. Undefined (0 repos)'));
+              }
+              // Show existing/assigned groups
+              let groupIdx = 1;
+              for (const g of availableGroups) {
+                const repos = grouped.get(g) ?? [];
+                if (repos.length > 0) {
+                  console.log(chalk.green(`  ${groupIdx}. ${g} (${repos.length} repos)`));
+                  for (const r of repos) console.log(chalk.dim(`     • ${r}`));
+                } else {
+                  console.log(chalk.dim(`  ${groupIdx}. ${g} (0 repos)`));
+                }
+                groupIdx++;
+              }
+              console.log();
+
+              // Build repo choices
+              const repoChoices: Array<{ name: string; value: string }> = [];
+              if (allAssigned) {
+                repoChoices.push({ name: chalk.green('✓ Confirm assignments'), value: '__DONE__' });
+              }
+              for (const [repoName, group] of repoGroupMap) {
+                const label = group === 'Undefined'
+                  ? chalk.yellow(`${repoName}`) + chalk.dim(` → Undefined`)
+                  : `${repoName}` + chalk.dim(` → ${group}`);
+                repoChoices.push({ name: label, value: repoName });
+              }
+
+              const repoChoice = await selectWithBack({
+                message: allAssigned ? 'All repos assigned. Reassign or confirm:' : 'Select repo to assign:',
+                choices: repoChoices,
               });
 
-              if (groupChoice === BACK) {
+              if (repoChoice === BACK) {
+                wentBack = true;
                 state = selectionMode === 'all' ? 'mode' : 'select';
                 break;
               }
 
-              if (groupChoice === '__NEW__') {
-                groupName = await input({ message: 'New group name:' });
-                if (!groupName.trim()) {
+              if (repoChoice === '__DONE__') {
+                groupDone = true;
+                break;
+              }
+
+              // Show available groups to assign to
+              const groupChoices: Array<{ name: string; value: string }> = [
+                ...Array.from(availableGroups).map((g) => ({ name: g, value: g })),
+                { name: chalk.green('+ Create new group'), value: '__NEW__' },
+              ];
+
+              const targetGroup = await selectWithBack({
+                message: `Assign "${repoChoice}" to:`,
+                choices: groupChoices,
+              });
+
+              if (targetGroup === BACK) continue; // back to repo selection
+
+              if (targetGroup === '__NEW__') {
+                const newName = await input({ message: 'New group name:' });
+                if (!newName.trim()) {
                   console.log(chalk.yellow('  Group name required.'));
-                  break; // Stay in group state
+                  continue;
                 }
                 const groupDesc = await input({ message: 'Group description (optional):' });
                 try {
-                  manifest.createGroup(groupName, groupDesc || undefined);
+                  manifest.createGroup(newName, groupDesc || undefined);
                 } catch {
                   // Group might already exist, that's ok
                 }
+                availableGroups.add(newName);
+                repoGroupMap.set(repoChoice as string, newName);
               } else {
-                groupName = groupChoice as string;
-              }
-            } else {
-              const backOrCreate = await selectWithBack({
-                message: 'No groups exist yet.',
-                choices: [
-                  { name: 'Create a new group', value: 'create' },
-                ],
-              });
-
-              if (backOrCreate === BACK) {
-                state = selectionMode === 'all' ? 'mode' : 'select';
-                break;
-              }
-
-              groupName = await input({ message: 'Group name:', default: 'default' });
-              const groupDesc = await input({ message: 'Group description (optional):' });
-              try {
-                manifest.createGroup(groupName, groupDesc || undefined);
-              } catch {
-                // Group might already exist
+                repoGroupMap.set(repoChoice as string, targetGroup as string);
               }
             }
 
+            if (wentBack) break;
             state = 'tags';
             break;
           }
@@ -529,9 +581,11 @@ program
       return;
     }
 
-    // Add repos to manifest
+    // Add repos to manifest using per-repo group assignments
     let added = 0;
+    const groupCounts = new Map<string, number>();
     for (const repo of selected) {
+      const targetGroup = repoGroupMap.get(repo.name) ?? 'default';
       const repoConfig: RepoConfig = {
         name: repo.name,
         path: repo.relativePath,
@@ -542,15 +596,19 @@ program
       };
 
       try {
-        manifest.addRepo(groupName, repoConfig);
+        manifest.addRepo(targetGroup, repoConfig);
         added++;
+        groupCounts.set(targetGroup, (groupCounts.get(targetGroup) ?? 0) + 1);
       } catch (err: any) {
         console.log(chalk.yellow(`  ⚠ Skipped ${repo.name}: ${err.message}`));
       }
     }
 
     manifest.save();
-    console.log(chalk.green(`\n  ✓ Added ${added} repo(s) to group "${groupName}"`));
+    const groupSummary = Array.from(groupCounts.entries())
+      .map(([g, n]) => `${g} (${n})`)
+      .join(', ');
+    console.log(chalk.green(`\n  ✓ Added ${added} repo(s) across groups: ${groupSummary}`));
 
     const allTags = new Set(Array.from(repoTags.values()).flat());
     if (allTags.size > 0) {
