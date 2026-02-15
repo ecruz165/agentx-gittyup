@@ -327,13 +327,13 @@ program
     const selectTheme = {
       style: {
         keysHelpTip: (keys: [string, string][]) =>
-          keys.map(([key, label]) => `${key}=${label}`).join(' | ') + ' | ← Back=return to previous step',
+          keys.map(([key, label]) => `${key}=${label}`).join(' | ') + ' | select "← Back" to return',
       },
     };
     const checkboxTheme = {
       style: {
         keysHelpTip: (keys: [string, string][]) =>
-          keys.map(([key, label]) => `${key}=${label}`).join(' | ') + ' | ← Back=return to previous step',
+          keys.map(([key, label]) => `${key}=${label}`).join(' | ') + ' | check "← Back" to return',
       },
     };
 
@@ -439,7 +439,7 @@ program
                   style: {
                     keysHelpTip: (keys: [string, string][]) =>
                       keys.map(([key, label]) => `${key}=${label}`).join(' | ') +
-                      ' | ← Back=return | ⊕=select entire folder',
+                      ' | check "← Back" to return | ⊕=select entire folder',
                   },
                 },
               });
