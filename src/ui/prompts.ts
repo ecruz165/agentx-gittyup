@@ -499,21 +499,34 @@ export const groupAssigner = createPrompt<GroupAssignerResult, GroupAssignerConf
   legendParts.push(styleText('cyan', '+=new'));
   const legend = `  Groups: ${legendParts.join('  ')}`;
 
-  // Build repo lines
-  const repoLines = repos.map((repo, i) => {
-    const group = assignments.get(repo) ?? 'Undefined';
-    const cursor = i === active ? styleText('cyan', figures.pointer) : ' ';
-    const groupIdx = groups.indexOf(group);
-    const tag = group === 'Undefined'
-      ? styleText('yellow', `[${groupIdx}:${group}]`)
-      : styleText('green', `[${groupIdx}:${group}]`);
-    const name = i === active ? styleText('bold', repo) : repo;
-    return `${cursor} ${name}  ${tag}`;
-  });
+  // Build repo lines grouped under their assigned group header
+  // Collect repos by group, preserving group order
+  const reposByGroup = new Map<string, { repo: string; idx: number }[]>();
+  for (const g of groups) reposByGroup.set(g, []);
+  for (let i = 0; i < repos.length; i++) {
+    const group = assignments.get(repos[i]) ?? 'Undefined';
+    reposByGroup.get(group)!.push({ repo: repos[i], idx: i });
+  }
 
-  // Paginate if needed
-  const startIdx = Math.max(0, Math.min(active - Math.floor(pageSize / 2), repos.length - pageSize));
-  const visibleLines = repoLines.slice(startIdx, startIdx + pageSize);
+  // Render grouped lines: header + indented repos
+  const groupedLines: { line: string; repoIdx: number | null }[] = [];
+  for (const [gIdx, g] of groups.entries()) {
+    const members = reposByGroup.get(g) ?? [];
+    if (members.length === 0 && g !== 'Undefined') continue; // skip empty non-Undefined groups
+    const headerColor = g === 'Undefined' ? 'yellow' : 'green';
+    groupedLines.push({ line: styleText(headerColor, `  ── ${gIdx}:${g} (${members.length}) ──`), repoIdx: null });
+    for (const { repo, idx } of members) {
+      const cursor = idx === active ? styleText('cyan', figures.pointer) : ' ';
+      const name = idx === active ? styleText('bold', repo) : repo;
+      groupedLines.push({ line: `  ${cursor} ${name}`, repoIdx: idx });
+    }
+  }
+
+  // Paginate around the active item
+  const activeLineIdx = groupedLines.findIndex((l) => l.repoIdx === active);
+  const totalLines = groupedLines.length;
+  const startIdx = Math.max(0, Math.min(activeLineIdx - Math.floor(pageSize / 2), totalLines - pageSize));
+  const visibleLines = groupedLines.slice(startIdx, startIdx + pageSize).map((l) => l.line);
 
   const keys: [string, string][] = [['↑↓', 'navigate'], ['0-9', 'assign group'], ['+', 'new group'], ['⏎', 'confirm'], ['esc/←', 'back']];
   const helpLine = theme.style.keysHelpTip(keys);
