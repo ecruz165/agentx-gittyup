@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import { existsSync } from 'node:fs';
 import chalk from 'chalk';
 import { confirm, checkbox, input, select, Separator } from '@inquirer/prompts';
 import ora from 'ora';
@@ -242,6 +243,12 @@ program
   .option('--no-metadata', 'Skip fetching repo metadata (faster)')
   .action(async (directory: string, opts: { depth: string; metadata?: boolean }) => {
     const searchDir = directory.startsWith('/') ? directory : process.cwd() + '/' + directory;
+
+    if (!existsSync(searchDir)) {
+      console.error(chalk.red(`No such file or directory: ${directory}`));
+      process.exit(1);
+    }
+
     const spinner = ora('Scanning for git repositories...').start();
 
     const finder = new RepoFinder(searchDir, {
