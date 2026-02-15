@@ -450,7 +450,7 @@ export const groupAssigner = createPrompt<GroupAssignerResult, GroupAssignerConf
     } else if (key.name === 'down' || (key.name === 'j' && !key.ctrl)) {
       setError(undefined);
       setActive(active >= repos.length - 1 ? 0 : active + 1);
-    } else if (key.name === '+' || (key.name === '=' && key.shift)) {
+    } else if ((key as any).sequence === '+' || key.name === '+' || (key.name === '=' && key.shift)) {
       setStatus('done');
       done({ action: 'new_group', assignments: new Map(assignments) } as GroupAssignerResult);
     } else {
