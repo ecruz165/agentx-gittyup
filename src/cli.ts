@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import { existsSync } from 'node:fs';
 import chalk from 'chalk';
 import { confirm, checkbox, input, select, Separator } from '@inquirer/prompts';
-import { selectWithBack, checkboxWithBack, groupAssigner, BACK, type NewGroupRequest } from './ui/prompts.js';
+import { selectWithBack, checkboxWithBack, groupAssigner, tagAssigner, BACK, type NewGroupRequest, type NewTagRequest } from './ui/prompts.js';
 import ora from 'ora';
 import { ManifestManager } from './config/manifest.js';
 import { Orchestrator } from './core/orchestrator.js';
@@ -470,51 +470,58 @@ program
           }
 
           case 'tags': {
-            const tagMode = await selectWithBack({
-              message: 'How would you like to tag these repos?',
-              choices: [
-                { name: 'Same tags for all', value: 'same' },
-                { name: 'Tag by folder (use folder name as tag)', value: 'folder' },
-                { name: 'No tags', value: 'none' },
-              ],
-            });
+            // Gather existing tags from manifest + auto-generate folder-based tags
+            const existingTags = manifest.getAllTags();
+            // Auto-generate folder tags from selected repos
+            const folderTags = new Set<string>();
+            for (const repo of selected) {
+              const parts = repo.relativePath.split('/');
+              const folder = parts.length > 1 ? parts[0] : 'root';
+              folderTags.add(folder.toLowerCase().replace(/[^a-z0-9-]/g, '-'));
+            }
+            const tagsList = [...new Set([...existingTags, ...folderTags])];
 
-            if (tagMode === BACK) {
-              state = 'group';
+            let currentTagAssignments: Map<string, string[]> | undefined =
+              repoTags.size > 0 ? repoTags : undefined;
+
+            let wentBack = false;
+
+            // Loop only re-enters when user creates a new tag via +
+            while (true) {
+              const result = await tagAssigner({
+                message: 'Assign tags to repos (press 0-9 to toggle):',
+                repos: selected.map((r) => ({ name: r.name, path: r.relativePath })),
+                tags: tagsList,
+                assignments: currentTagAssignments,
+                pageSize: 20,
+              });
+
+              if (result === BACK) {
+                wentBack = true;
+                state = 'group';
+                break;
+              }
+
+              if (typeof result === 'object' && 'action' in result && result.action === 'new_tag') {
+                const req = result as NewTagRequest;
+                currentTagAssignments = req.assignments;
+
+                const newTagName = await input({ message: 'New tag name:' });
+                const trimmed = newTagName.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-');
+                if (trimmed && !tagsList.includes(trimmed)) {
+                  tagsList.push(trimmed);
+                  console.log(chalk.green(`  ✓ Added tag "${trimmed}"`));
+                } else if (tagsList.includes(trimmed)) {
+                  console.log(chalk.yellow(`  Tag "${trimmed}" already exists.`));
+                }
+                continue;
+              }
+
+              repoTags = result as Map<string, string[]>;
               break;
             }
 
-            repoTags = new Map<string, string[]>();
-
-            if (tagMode === 'same') {
-              const tagsInput = await input({ message: 'Tags (comma-separated):' });
-              const tags = tagsInput.split(',').map((t) => t.trim()).filter((t) => t.length > 0);
-              for (const repo of selected) {
-                repoTags.set(repo.name, tags);
-              }
-            } else if (tagMode === 'folder') {
-              for (const repo of selected) {
-                const parts = repo.relativePath.split('/');
-                const folder = parts.length > 1 ? parts[0] : 'root';
-                const folderTag = folder.toLowerCase().replace(/[^a-z0-9-]/g, '-');
-                repoTags.set(repo.name, [folderTag]);
-              }
-              const folderTags = new Set(Array.from(repoTags.values()).flat());
-              console.log(chalk.dim(`\n  Will apply folder tags: ${Array.from(folderTags).join(', ')}`));
-
-              const additionalTags = await input({ message: 'Additional tags for all (comma-separated, or empty):' });
-              if (additionalTags.trim()) {
-                const extra = additionalTags.split(',').map((t) => t.trim()).filter((t) => t.length > 0);
-                for (const [name, tags] of repoTags) {
-                  repoTags.set(name, [...tags, ...extra]);
-                }
-              }
-            } else {
-              for (const repo of selected) {
-                repoTags.set(repo.name, []);
-              }
-            }
-
+            if (wentBack) break;
             state = 'done';
             break;
           }

@@ -548,3 +548,153 @@ export const groupAssigner = createPrompt<GroupAssignerResult, GroupAssignerConf
     helpLine,
   ].filter((line) => line !== undefined).join('\n').trimEnd() + cursorHide;
 });
+
+
+
+// ─── Tag Assigner ───
+
+/** Returned when user presses + to create a new tag — includes current assignments so they aren't lost */
+export interface NewTagRequest {
+  action: 'new_tag';
+  assignments: Map<string, string[]>;
+}
+
+/** A repo entry for the tag assigner — name is required, path is optional (shown dimmed). */
+export interface TagAssignerRepo {
+  name: string;
+  path?: string;
+}
+
+/** Result returned by tagAssigner: BACK, a NewTagRequest (with current assignments), or a confirmed Map */
+export type TagAssignerResult = BackSymbol | NewTagRequest | Map<string, string[]>;
+
+interface TagAssignerConfig {
+  message: string;
+  /** Repos to assign tags to */
+  repos: TagAssignerRepo[];
+  /** Available tag names (numbered 0-based in the legend) */
+  tags: string[];
+  /** Pre-existing assignments (repo name → tag names). Unassigned repos default to []. */
+  assignments?: Map<string, string[]>;
+  pageSize?: number;
+  theme?: any;
+}
+
+const TAG_COLORS = ['magenta', 'cyan', 'green', 'yellow', 'blue', 'red'] as const;
+
+/**
+ * Interactive tag assignment prompt. Shows repos as a flat list; press 0-9 to toggle
+ * a numbered tag on/off for the highlighted repo. Press + to create a new tag.
+ * Enter confirms (tags are optional — repos may have zero tags).
+ */
+export const tagAssigner = createPrompt<TagAssignerResult, TagAssignerConfig>((config, done) => {
+  const { pageSize = 15 } = config;
+  const theme = makeTheme(defaultGroupAssignerTheme, config.theme);
+  const [status, setStatus] = useState<Status>('idle');
+  const [isBack, setIsBack] = useState(false);
+  const prefix = usePrefix({ status, theme });
+  const [errorMsg, setError] = useState<string | undefined>();
+
+  // Build initial assignments (repo name → tag names[])
+  const [assignments, setAssignments] = useState<Map<string, string[]>>(() => {
+    const map = new Map<string, string[]>();
+    for (const repo of config.repos) {
+      map.set(repo.name, config.assignments?.get(repo.name) ?? []);
+    }
+    return map;
+  });
+
+  const tags = config.tags;
+  const [active, setActive] = useState(0);
+  const repos = config.repos;
+
+  useKeypress((key) => {
+    if (isBackKey(key)) {
+      setIsBack(true);
+      setStatus('done');
+      done(BACK as TagAssignerResult);
+    } else if (isEnterKey(key)) {
+      setStatus('done');
+      done(new Map(assignments) as TagAssignerResult);
+    } else if (key.name === 'up' || (key.name === 'k' && !key.ctrl)) {
+      setError(undefined);
+      if (active > 0) setActive(active - 1);
+    } else if (key.name === 'down' || (key.name === 'j' && !key.ctrl)) {
+      setError(undefined);
+      if (active < repos.length - 1) setActive(active + 1);
+    } else if ((key as any).sequence === '+' || key.name === '+' || (key.name === '=' && key.shift)) {
+      setStatus('done');
+      done({ action: 'new_tag', assignments: new Map(assignments) } as TagAssignerResult);
+    } else {
+      // Check for digit keys 0-9 → toggle tag
+      const digit = parseInt(key.name, 10);
+      if (!isNaN(digit) && digit >= 0 && digit < tags.length) {
+        setError(undefined);
+        const repo = repos[active];
+        const currentTags = assignments.get(repo.name) ?? [];
+        const tagName = tags[digit];
+        const newTags = currentTags.includes(tagName)
+          ? currentTags.filter((t) => t !== tagName)
+          : [...currentTags, tagName];
+        const newMap = new Map(assignments);
+        newMap.set(repo.name, newTags);
+        setAssignments(newMap);
+      }
+    }
+  });
+
+  const message = theme.style.message(config.message, status);
+
+  if (status === 'done') {
+    if (isBack) return '';
+    // For confirmed assignments, show summary
+    const allTags = new Set(Array.from(assignments.values()).flat());
+    const summary = allTags.size > 0 ? Array.from(allTags).join(', ') : 'no tags';
+    return `${prefix} ${message} ${theme.style.answer(summary)}`;
+  }
+
+  // Build tag legend line
+  const legendParts = tags.map((t, i) => {
+    const count = Array.from(assignments.values()).filter((a) => a.includes(t)).length;
+    const color = TAG_COLORS[i % TAG_COLORS.length];
+    return count > 0
+      ? styleText(color, `${i}=${t}(${count})`)
+      : styleText('dim', `${i}=${t}(0)`);
+  });
+  legendParts.push(styleText('cyan', '+=new'));
+  const legend = `  Tags: ${legendParts.join('  ')}`;
+
+  // Build flat repo lines with tag badges
+  const lines: string[] = [];
+  for (let i = 0; i < repos.length; i++) {
+    const repo = repos[i];
+    const cursor = i === active ? styleText('cyan', figures.pointer) : ' ';
+    const name = i === active ? styleText('bold', repo.name) : repo.name;
+    const repoTags = assignments.get(repo.name) ?? [];
+    const tagBadges = repoTags.map((t) => {
+      const tIdx = tags.indexOf(t);
+      const color = tIdx >= 0 ? TAG_COLORS[tIdx % TAG_COLORS.length] : 'dim';
+      return styleText(color as string, `[${t}]`);
+    }).join(' ');
+    const pathSuffix = repo.path ? styleText('dim', ` ${repo.path}`) : '';
+    const badgeStr = tagBadges ? ` ${tagBadges}` : '';
+    lines.push(`  ${cursor} ${name}${badgeStr}${pathSuffix}`);
+  }
+
+  // Paginate around the active item
+  const startIdx = Math.max(0, Math.min(active - Math.floor(pageSize / 2), lines.length - pageSize));
+  const visibleLines = lines.slice(startIdx, startIdx + pageSize);
+
+  const keys: [string, string][] = [['↑↓', 'navigate'], ['0-9', 'toggle tag'], ['+', 'new tag'], ['⏎', 'confirm'], ['esc/←', 'back']];
+  const helpLine = theme.style.keysHelpTip(keys);
+
+  return [
+    `${prefix} ${message}`,
+    legend,
+    '',
+    ...visibleLines,
+    '',
+    errorMsg ? styleText('red', `  ⚠ ${errorMsg}`) : '',
+    helpLine,
+  ].filter((line) => line !== undefined).join('\n').trimEnd() + cursorHide;
+});
