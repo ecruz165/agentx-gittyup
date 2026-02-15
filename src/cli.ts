@@ -166,7 +166,7 @@ program
         choices: repos.map((r, i) => ({
           name: `${String(i + 1).padStart(3)}. ${r.name} ${chalk.dim(`(${r.relativePath})`)}`,
           value: r,
-          checked: true,
+          checked: false,
         })),
       });
     }
