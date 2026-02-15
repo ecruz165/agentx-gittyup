@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import { existsSync } from 'node:fs';
 import chalk from 'chalk';
 import { confirm, checkbox, input, select, Separator } from '@inquirer/prompts';
+import { selectWithBack, checkboxWithBack, BACK } from './ui/prompts.js';
 import ora from 'ora';
 import { ManifestManager } from './config/manifest.js';
 import { Orchestrator } from './core/orchestrator.js';
@@ -305,43 +306,12 @@ program
     // Type definitions for individual selection
     type FolderToggle = { type: 'folder'; folder: string };
     type RepoChoice = { type: 'repo'; repo: DiscoveredRepo };
-    type BackOption = { type: 'back' };
-    type ChoiceValue = FolderToggle | RepoChoice | BackOption;
-
-    // Helper to check if error is from Escape/Ctrl+C
-    const isExitError = (err: unknown): boolean => {
-      return err instanceof Error && (err.name === 'ExitPromptError' || err.message.includes('User force closed'));
-    };
-
-    // Previous state mapping for back navigation
-    const prevState: Record<State, State> = {
-      mode: 'cancel',
-      select: 'mode',
-      group: 'select', // Will be adjusted based on selectionMode
-      tags: 'group',
-      done: 'tags',
-      cancel: 'cancel',
-    };
-
-    // Shared theme for consistent help tips across all prompts
-    const selectTheme = {
-      style: {
-        keysHelpTip: (keys: [string, string][]) =>
-          keys.map(([key, label]) => `${key}=${label}`).join(' | ') + ' | select "← Back" to return',
-      },
-    };
-    const checkboxTheme = {
-      style: {
-        keysHelpTip: (keys: [string, string][]) =>
-          keys.map(([key, label]) => `${key}=${label}`).join(' | ') + ' | check "← Back" to return',
-      },
-    };
+    type ChoiceValue = FolderToggle | RepoChoice;
 
     while (state !== 'done' && state !== 'cancel') {
-      try {
-        switch (state) {
+      switch (state) {
           case 'mode': {
-            const choice = await select({
+            const choice = await selectWithBack({
               message: `How would you like to select from ${repos.length} repositories?`,
               choices: [
                 { name: `Add all ${repos.length} repositories`, value: 'all' as const },
@@ -349,15 +319,9 @@ program
                 { name: 'Select individually (checkbox)', value: 'individual' as const },
                 { name: chalk.dim('Cancel'), value: 'cancel' as const },
               ],
-              theme: {
-                style: {
-                  keysHelpTip: (keys: [string, string][]) =>
-                    keys.map(([key, label]) => `${key}=${label}`).join(' | '),
-                },
-              },
             });
 
-            if (choice === 'cancel') {
+            if (choice === BACK || choice === 'cancel') {
               state = 'cancel';
             } else if (choice === 'all') {
               selectionMode = 'all';
@@ -373,45 +337,39 @@ program
 
           case 'select': {
             selected = [];
-            let wentBack = false;
 
             if (selectionMode === 'folder') {
-              const folderChoices: Array<{ name: string; value: string | '__BACK__'; checked: boolean }> = [
-                { name: chalk.dim('← Back'), value: '__BACK__', checked: false },
-                ...Array.from(folderGroups.entries()).map(([folder, folderRepos]) => ({
-                  name: `📁 ${folder}/ ${chalk.dim(`(${folderRepos.length} repos)`)}`,
-                  value: folder,
-                  checked: false,
-                })),
-              ];
+              const folderChoices = Array.from(folderGroups.entries()).map(([folder, folderRepos]) => ({
+                name: `📁 ${folder}/ ${chalk.dim(`(${folderRepos.length} repos)`)}`,
+                value: folder,
+                checked: false,
+              }));
 
-              const selectedFolders = await checkbox<string>({
+              const result = await checkboxWithBack({
                 message: 'Select folders to add:',
                 pageSize: 15,
                 loop: false,
                 choices: folderChoices,
                 shortcuts: { all: 'a', invert: 'i' },
-                theme: checkboxTheme,
               });
 
-              if (selectedFolders.includes('__BACK__')) {
-                wentBack = true;
-              } else {
-                for (const folder of selectedFolders) {
-                  const folderRepos = folderGroups.get(folder);
-                  if (folderRepos) selected.push(...folderRepos);
-                }
+              if (result === BACK) {
+                state = 'mode';
+                break;
+              }
 
-                if (selected.length > 0) {
-                  console.log(chalk.dim(`\n  Selected ${selected.length} repositories from ${selectedFolders.length} folder(s).\n`));
-                }
+              const selectedFolders = result as string[];
+              for (const folder of selectedFolders) {
+                const folderRepos = folderGroups.get(folder);
+                if (folderRepos) selected.push(...folderRepos);
+              }
+
+              if (selected.length > 0) {
+                console.log(chalk.dim(`\n  Selected ${selected.length} repositories from ${selectedFolders.length} folder(s).\n`));
               }
             } else {
               // Individual selection
-              const choices: Array<{ name: string; value: ChoiceValue; checked: boolean } | Separator> = [
-                { name: chalk.dim('← Back'), value: { type: 'back' } as BackOption, checked: false },
-                new Separator(' '),
-              ];
+              const choices: Array<{ name: string; value: ChoiceValue; checked: boolean } | Separator> = [];
               for (const [folder, folderRepos] of folderGroups) {
                 choices.push(new Separator(chalk.blue(`── ${folder}/ ──`)));
                 choices.push({
@@ -429,51 +387,42 @@ program
                 }
               }
 
-              const rawSelected = await checkbox<ChoiceValue>({
+              const result = await checkboxWithBack({
                 message: 'Select repositories to add:',
                 pageSize: 15,
                 loop: false,
                 choices,
                 shortcuts: { all: 'a', invert: 'i' },
-                theme: {
-                  style: {
-                    keysHelpTip: (keys: [string, string][]) =>
-                      keys.map(([key, label]) => `${key}=${label}`).join(' | ') +
-                      ' | check "← Back" to return | ⊕=select entire folder',
-                  },
-                },
               });
 
-              // Check if back was selected
-              if (rawSelected.some((item) => item.type === 'back')) {
-                wentBack = true;
-              } else {
-                const selectedRepoSet = new Set<DiscoveredRepo>();
-                for (const item of rawSelected) {
-                  if (item.type === 'folder') {
-                    const folderRepos = folderGroups.get(item.folder);
-                    if (folderRepos) folderRepos.forEach((r) => selectedRepoSet.add(r));
-                  } else if (item.type === 'repo') {
-                    selectedRepoSet.add(item.repo);
-                  }
-                }
-                selected = Array.from(selectedRepoSet);
+              if (result === BACK) {
+                state = 'mode';
+                break;
               }
+
+              const rawSelected = result as ChoiceValue[];
+              const selectedRepoSet = new Set<DiscoveredRepo>();
+              for (const item of rawSelected) {
+                if (item.type === 'folder') {
+                  const folderRepos = folderGroups.get(item.folder);
+                  if (folderRepos) folderRepos.forEach((r) => selectedRepoSet.add(r));
+                } else if (item.type === 'repo') {
+                  selectedRepoSet.add(item.repo);
+                }
+              }
+              selected = Array.from(selectedRepoSet);
             }
 
-            if (wentBack) {
-              state = 'mode';
-            } else if (selected.length === 0) {
+            if (selected.length === 0) {
               // If nothing selected, offer to go back
-              const emptyAction = await select({
+              const emptyAction = await selectWithBack({
                 message: 'No repositories selected.',
                 choices: [
-                  { name: '← Back to selection mode', value: 'back' },
+                  { name: 'Back to selection mode', value: 'back' },
                   { name: 'Cancel', value: 'cancel' },
                 ],
-                theme: selectTheme,
               });
-              state = emptyAction === 'back' ? 'mode' : 'cancel';
+              state = emptyAction === BACK || emptyAction === 'back' ? 'mode' : 'cancel';
             } else {
               state = 'group';
             }
@@ -484,17 +433,15 @@ program
             const existingGroups = manifest.getGroups().map((g) => g.name);
 
             if (existingGroups.length > 0) {
-              const groupChoice = await select({
+              const groupChoice = await selectWithBack({
                 message: 'Add to which group?',
                 choices: [
-                  { name: chalk.dim('← Back'), value: '__BACK__' },
                   ...existingGroups.map((g) => ({ name: g, value: g })),
                   { name: chalk.green('+ Create new group'), value: '__NEW__' },
                 ],
-                theme: selectTheme,
               });
 
-              if (groupChoice === '__BACK__') {
+              if (groupChoice === BACK) {
                 state = selectionMode === 'all' ? 'mode' : 'select';
                 break;
               }
@@ -512,19 +459,17 @@ program
                   // Group might already exist, that's ok
                 }
               } else {
-                groupName = groupChoice;
+                groupName = groupChoice as string;
               }
             } else {
-              const backOrCreate = await select({
+              const backOrCreate = await selectWithBack({
                 message: 'No groups exist yet.',
                 choices: [
-                  { name: chalk.dim('← Back'), value: '__BACK__' },
                   { name: 'Create a new group', value: 'create' },
                 ],
-                theme: selectTheme,
               });
 
-              if (backOrCreate === '__BACK__') {
+              if (backOrCreate === BACK) {
                 state = selectionMode === 'all' ? 'mode' : 'select';
                 break;
               }
@@ -543,18 +488,16 @@ program
           }
 
           case 'tags': {
-            const tagMode = await select({
+            const tagMode = await selectWithBack({
               message: 'How would you like to tag these repos?',
               choices: [
-                { name: chalk.dim('← Back'), value: 'back' },
                 { name: 'Same tags for all', value: 'same' },
                 { name: 'Tag by folder (use folder name as tag)', value: 'folder' },
                 { name: 'No tags', value: 'none' },
               ],
-              theme: selectTheme,
             });
 
-            if (tagMode === 'back') {
+            if (tagMode === BACK) {
               state = 'group';
               break;
             }
@@ -594,21 +537,6 @@ program
             break;
           }
         }
-      } catch (err) {
-        if (isExitError(err)) {
-          // Escape pressed - go back to previous state
-          if (state === 'mode') {
-            state = 'cancel'; // Can't go back from first step
-          } else if (state === 'group' && selectionMode === 'all') {
-            state = 'mode'; // Skip select if we chose "all"
-          } else {
-            state = prevState[state];
-          }
-          console.log(chalk.dim('  ← Back\n'));
-        } else {
-          throw err; // Re-throw unexpected errors
-        }
-      }
     }
 
     if (state === 'cancel') {
