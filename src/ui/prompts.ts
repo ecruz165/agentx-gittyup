@@ -371,3 +371,160 @@ export const checkboxWithBack = createPrompt<any, CheckboxConfig<any>>((config, 
   ].filter(Boolean).join('\n').trimEnd() + cursorHide;
 });
 
+
+
+// ─── Group Assigner ───
+
+/** Returned when user presses + to create a new group — includes current assignments so they aren't lost */
+export interface NewGroupRequest {
+  action: 'new_group';
+  assignments: Map<string, string>;
+}
+
+/** Result returned by groupAssigner: BACK, a NewGroupRequest (with current assignments), or a confirmed Map */
+export type GroupAssignerResult = BackSymbol | NewGroupRequest | Map<string, string>;
+
+interface GroupAssignerConfig {
+  message: string;
+  /** Repo names to assign */
+  repos: string[];
+  /** Available group names (index 0 = Undefined, rest are 1-based) */
+  groups: string[];
+  /** Pre-existing assignments (repo name → group name). Unassigned repos default to 'Undefined'. */
+  assignments?: Map<string, string>;
+  pageSize?: number;
+  theme?: any;
+}
+
+const defaultGroupAssignerTheme = {
+  icon: { cursor: figures.pointer },
+  style: {
+    description: (text: string) => styleText('cyan', text),
+    keysHelpTip: (keys: [string, string][]) =>
+      keys.map(([key, action]) => `${styleText('bold', key)} ${styleText('dim', action)}`).join(styleText('dim', ' • ')),
+  },
+};
+
+/**
+ * Interactive group assignment prompt. Shows repos as a list; press 0-9 to assign
+ * the highlighted repo to a numbered group. Press + to create a new group.
+ * Enter confirms when all repos are assigned (none in Undefined).
+ */
+export const groupAssigner = createPrompt<GroupAssignerResult, GroupAssignerConfig>((config, done) => {
+  const { pageSize = 15 } = config;
+  const theme = makeTheme(defaultGroupAssignerTheme, config.theme);
+  const [status, setStatus] = useState<Status>('idle');
+  const [isBack, setIsBack] = useState(false);
+  const prefix = usePrefix({ status, theme });
+  const [errorMsg, setError] = useState<string | undefined>();
+
+  // Build initial assignments
+  const [assignments, setAssignments] = useState<Map<string, string>>(() => {
+    const map = new Map<string, string>();
+    for (const repo of config.repos) {
+      map.set(repo, config.assignments?.get(repo) ?? 'Undefined');
+    }
+    return map;
+  });
+
+  const groups = config.groups; // index 0 = 'Undefined', 1+ = real groups
+  const [active, setActive] = useState(0);
+  const repos = config.repos;
+
+  useKeypress((key) => {
+    if (isBackKey(key)) {
+      setIsBack(true);
+      setStatus('done');
+      done(BACK as GroupAssignerResult);
+    } else if (isEnterKey(key)) {
+      const hasUndefined = Array.from(assignments.values()).some((g) => g === 'Undefined');
+      if (hasUndefined) {
+        setError('All repos must be assigned to a group before proceeding.');
+      } else {
+        setStatus('done');
+        done(new Map(assignments) as GroupAssignerResult);
+      }
+    } else if (key.name === 'up' || (key.name === 'k' && !key.ctrl)) {
+      setError(undefined);
+      setActive(active <= 0 ? repos.length - 1 : active - 1);
+    } else if (key.name === 'down' || (key.name === 'j' && !key.ctrl)) {
+      setError(undefined);
+      setActive(active >= repos.length - 1 ? 0 : active + 1);
+    } else if (key.name === '+' || (key.name === '=' && key.shift)) {
+      setStatus('done');
+      done({ action: 'new_group', assignments: new Map(assignments) } as GroupAssignerResult);
+    } else {
+      // Check for digit keys 0-9
+      const digit = parseInt(key.name, 10);
+      if (!isNaN(digit) && digit >= 0 && digit < groups.length) {
+        setError(undefined);
+        const repo = repos[active];
+        const newMap = new Map(assignments);
+        newMap.set(repo, groups[digit]);
+        setAssignments(newMap);
+        // Auto-advance to next repo
+        if (active < repos.length - 1) setActive(active + 1);
+      }
+    }
+  });
+
+  const message = theme.style.message(config.message, status);
+
+  if (status === 'done') {
+    if (isBack) return '';
+    // For confirmed assignments, show summary
+    const groupCounts = new Map<string, number>();
+    for (const g of assignments.values()) {
+      groupCounts.set(g, (groupCounts.get(g) ?? 0) + 1);
+    }
+    const summary = Array.from(groupCounts.entries())
+      .filter(([g]) => g !== 'Undefined')
+      .map(([g, n]) => `${g}(${n})`)
+      .join(', ');
+    return `${prefix} ${message} ${theme.style.answer(summary || 'done')}`;
+  }
+
+  // Build group legend line
+  const legendParts = groups.map((g, i) => {
+    const count = Array.from(assignments.values()).filter((a) => a === g).length;
+    if (i === 0) {
+      return count > 0
+        ? styleText('yellow', `${i}=${g}(${count})`)
+        : styleText('dim', `${i}=${g}(0)`);
+    }
+    return count > 0
+      ? styleText('green', `${i}=${g}(${count})`)
+      : styleText('dim', `${i}=${g}(0)`);
+  });
+  legendParts.push(styleText('cyan', '+=new'));
+  const legend = `  Groups: ${legendParts.join('  ')}`;
+
+  // Build repo lines
+  const repoLines = repos.map((repo, i) => {
+    const group = assignments.get(repo) ?? 'Undefined';
+    const cursor = i === active ? styleText('cyan', figures.pointer) : ' ';
+    const groupIdx = groups.indexOf(group);
+    const tag = group === 'Undefined'
+      ? styleText('yellow', `[${groupIdx}:${group}]`)
+      : styleText('green', `[${groupIdx}:${group}]`);
+    const name = i === active ? styleText('bold', repo) : repo;
+    return `${cursor} ${name}  ${tag}`;
+  });
+
+  // Paginate if needed
+  const startIdx = Math.max(0, Math.min(active - Math.floor(pageSize / 2), repos.length - pageSize));
+  const visibleLines = repoLines.slice(startIdx, startIdx + pageSize);
+
+  const keys: [string, string][] = [['↑↓', 'navigate'], ['0-9', 'assign group'], ['+', 'new group'], ['⏎', 'confirm'], ['esc/←', 'back']];
+  const helpLine = theme.style.keysHelpTip(keys);
+
+  return [
+    `${prefix} ${message}`,
+    legend,
+    '',
+    ...visibleLines,
+    '',
+    errorMsg ? styleText('red', `  ⚠ ${errorMsg}`) : '',
+    helpLine,
+  ].filter((line) => line !== undefined).join('\n').trimEnd() + cursorHide;
+});
