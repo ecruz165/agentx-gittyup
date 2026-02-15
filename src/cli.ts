@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { confirm, checkbox, input, select } from '@inquirer/prompts';
+import { confirm, checkbox, input, select, Separator } from '@inquirer/prompts';
 import ora from 'ora';
 import { ManifestManager } from './config/manifest.js';
 import { Orchestrator } from './core/orchestrator.js';
@@ -120,12 +120,29 @@ program
       return;
     }
 
-    console.log(chalk.bold(`\n  Found ${repos.length} git repositories:\n`));
-    for (const repo of repos) {
-      const dirty = repo.isDirty ? chalk.yellow(' (dirty)') : '';
-      const branch = repo.currentBranch ? chalk.dim(` [${repo.currentBranch}]`) : '';
-      console.log(`    ${chalk.white(repo.name)}${branch}${dirty}`);
-      console.log(chalk.dim(`      ${repo.relativePath}`));
+    // Group repos by parent folder
+    const groupByFolder = (repoList: DiscoveredRepo[]): Map<string, DiscoveredRepo[]> => {
+      const groups = new Map<string, DiscoveredRepo[]>();
+      for (const repo of repoList) {
+        const parts = repo.relativePath.split('/');
+        const folder = parts.length > 1 ? parts.slice(0, -1).join('/') : '.';
+        if (!groups.has(folder)) groups.set(folder, []);
+        groups.get(folder)!.push(repo);
+      }
+      return groups;
+    };
+
+    const folderGroups = groupByFolder(repos);
+    const folderCount = folderGroups.size;
+
+    console.log(chalk.bold(`\n  Found ${repos.length} git repositories in ${folderCount} folder(s):\n`));
+    for (const [folder, folderRepos] of folderGroups) {
+      console.log(chalk.blue.bold(`  📁 ${folder}/`) + chalk.dim(` (${folderRepos.length})`));
+      for (const repo of folderRepos) {
+        const dirty = repo.isDirty ? chalk.yellow(' *') : '';
+        const branch = repo.currentBranch ? chalk.dim(` [${repo.currentBranch}]`) : '';
+        console.log(`      ${chalk.white(repo.name)}${branch}${dirty}`);
+      }
     }
     console.log();
 
@@ -151,23 +168,31 @@ program
       selected = repos;
       console.log(chalk.dim(`\n  Selected all ${repos.length} repositories.\n`));
     } else {
-      // Show numbered list for reference
-      console.log(chalk.bold('\n  Repository list:\n'));
-      repos.forEach((r, i) => {
-        const dirty = r.isDirty ? chalk.yellow(' *') : '';
-        console.log(chalk.dim(`  ${String(i + 1).padStart(3)}. `) + chalk.white(r.name) + dirty + chalk.dim(` — ${r.relativePath}`));
-      });
-      console.log(chalk.dim('\n  Use ↑↓ to navigate, Space to toggle, A to toggle all, Enter to confirm\n'));
+      // Build choices grouped by folder with separators
+      const choices: Array<{ name: string; value: DiscoveredRepo; checked: boolean } | Separator> = [];
+      for (const [folder, folderRepos] of folderGroups) {
+        choices.push(new Separator(chalk.blue(`── ${folder}/ ──`)));
+        for (const r of folderRepos) {
+          const dirty = r.isDirty ? chalk.yellow(' *') : '';
+          choices.push({
+            name: `${r.name}${dirty} ${chalk.dim(r.currentBranch ? `[${r.currentBranch}]` : '')}`,
+            value: r,
+            checked: false,
+          });
+        }
+      }
+
+      console.log(chalk.dim('\n  Shortcuts: Space=toggle, A=select all, I=invert, Enter=confirm\n'));
 
       selected = await checkbox<DiscoveredRepo>({
         message: 'Select repositories to add:',
         pageSize: 15,
         loop: false,
-        choices: repos.map((r, i) => ({
-          name: `${String(i + 1).padStart(3)}. ${r.name} ${chalk.dim(`(${r.relativePath})`)}`,
-          value: r,
-          checked: false,
-        })),
+        choices,
+        shortcuts: {
+          all: 'a',
+          invert: 'i',
+        },
       });
     }
 
