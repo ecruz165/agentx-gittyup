@@ -22,7 +22,8 @@
     "test:watch": "vitest",
     "test:unit": "vitest run tests/unit/",
     "test:integration": "vitest run tests/integration/",
-    "test:e2e": "vitest run tests/e2e/"
+    "test:e2e": "vitest run tests/e2e/",
+    "rebrand": "tsx scripts/rebrand.ts"
   },
   "keywords": [
     "git",
@@ -48,6 +49,7 @@
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^25.2.3",
     "tsup": "^8.5.1",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"
   }

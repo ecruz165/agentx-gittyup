@@ -1,0 +1,68 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Branding Configuration
+# ═══════════════════════════════════════════════════════════════════════════════
+# This file defines all brand-related values for the CLI tool.
+# Run `npm run rebrand` after making changes to update all source files.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# CLI tool name (used in commands, help text, etc.)
+cli_name: gittyup
+
+# Package name for npm (can differ from cli_name)
+package_name: gittyup
+
+# Tool description
+description: Multi-repo orchestration CLI with interactive conflict resolution
+
+# Version
+version: 0.1.0
+
+# Binary/executable name (what users type to run the tool)
+bin_name: gittyup
+
+# Config file name (e.g., gittyup.yaml)
+config_file: gittyup.yaml
+
+# Config directory in user's home (e.g., ~/.gittyup)
+config_dir: .gittyup
+
+# GitHub repository URL
+repo_url: https://github.com/ecruz165/gittyup
+
+# Author/organization
+author: ecruz165
+
+# License
+license: MIT
+
+# Keywords for npm
+keywords:
+  - git
+  - multi-repo
+  - cherry-pick
+  - merge
+  - conflict-resolution
+  - cli
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Files to update during rebrand (relative to project root)
+# ═══════════════════════════════════════════════════════════════════════════════
+files_to_update:
+  - package.json
+  - src/cli.ts
+  - src/config/manifest.ts
+  - src/core/cache.ts
+  - src/auth/token-manager.ts
+  - README.md
+  - CLAUDE.md
+  - gittyup.example.yaml
+
+# Files to rename (old_name: new_name pattern uses {{bin_name}} placeholder)
+files_to_rename:
+  - from: bin/gittyup.js
+    to: bin/{{bin_name}}.js
+  - from: gittyup.yaml
+    to: "{{config_file}}"
+  - from: gittyup.example.yaml
+    to: "{{cli_name}}.example.yaml"
+
