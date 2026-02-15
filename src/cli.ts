@@ -369,13 +369,14 @@ program
               }
             } else {
               // Individual selection
-              const choices: Array<{ name: string; value: ChoiceValue; checked: boolean } | Separator> = [];
+              const choices: Array<{ name: string; value: ChoiceValue; checked: boolean; group?: string } | Separator> = [];
               for (const [folder, folderRepos] of folderGroups) {
                 choices.push(new Separator(chalk.blue(`── ${folder}/ ──`)));
                 choices.push({
                   name: chalk.cyan(`⊕ Select all in ${folder}/`),
                   value: { type: 'folder', folder } as FolderToggle,
                   checked: false,
+                  group: folder,
                 });
                 for (const r of folderRepos) {
                   const dirty = r.isDirty ? chalk.yellow(' *') : '';
@@ -383,6 +384,7 @@ program
                     name: `${r.name}${dirty} ${chalk.dim(r.currentBranch ? `[${r.currentBranch}]` : '')}`,
                     value: { type: 'repo', repo: r } as RepoChoice,
                     checked: false,
+                    group: folder,
                   });
                 }
               }
@@ -392,7 +394,7 @@ program
                 pageSize: 15,
                 loop: false,
                 choices,
-                shortcuts: { all: 'a', invert: 'i' },
+                shortcuts: { all: 'a', invert: 'i', folder: 'f' },
               });
 
               if (result === BACK) {

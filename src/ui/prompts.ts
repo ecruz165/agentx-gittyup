@@ -186,6 +186,8 @@ type CheckboxChoice<V> = {
   disabled?: boolean | string;
   checked?: boolean;
   description?: string;
+  /** Optional group identifier — used by the folder-toggle shortcut to toggle all items in the same group. */
+  group?: string;
 } | Separator;
 
 interface CheckboxConfig<V> {
@@ -195,7 +197,7 @@ interface CheckboxConfig<V> {
   loop?: boolean;
   required?: boolean;
   validate?: (items: ReadonlyArray<{ value: V }>) => boolean | string | Promise<boolean | string>;
-  shortcuts?: { all?: string; invert?: string };
+  shortcuts?: { all?: string; invert?: string; folder?: string };
   theme?: any;
 }
 
@@ -225,6 +227,7 @@ function normalizeCheckboxChoices<V>(choices: ReadonlyArray<CheckboxChoice<V>>) 
     const name = c.name ?? String(c.value);
     const norm: any = { value: c.value, name, short: c.short ?? name, checkedName: c.checkedName ?? name, disabled: c.disabled ?? false, checked: c.checked ?? false };
     if (c.description) norm.description = c.description;
+    if (c.group) norm.group = c.group;
     return norm;
   });
 }
@@ -292,6 +295,15 @@ export const checkboxWithBack = createPrompt<any, CheckboxConfig<any>>((config, 
       setItems(items.map(checkAll(selectAll)));
     } else if (key.name === shortcuts.invert) {
       setItems(items.map(toggleItem));
+    } else if (shortcuts.folder && key.name === shortcuts.folder) {
+      // Toggle all items sharing the same group as the active item
+      const activeItem = items[active] as any;
+      const group = activeItem?.group;
+      if (group) {
+        const groupItems = items.filter((item: any) => isSelectable(item) && item.group === group);
+        const shouldCheck = groupItems.some((item: any) => !item.checked);
+        setItems(items.map((item: any) => (isSelectable(item) && item.group === group ? { ...item, checked: shouldCheck } : item)));
+      }
     } else if (isNumberKey(key)) {
       const selectedIndex = Number(key.name) - 1;
       let selectableIndex = -1;
@@ -339,6 +351,7 @@ export const checkboxWithBack = createPrompt<any, CheckboxConfig<any>>((config, 
   const keys: [string, string][] = [['↑↓', 'navigate'], ['space', 'select']];
   if (shortcuts.all) keys.push([shortcuts.all, 'all']);
   if (shortcuts.invert) keys.push([shortcuts.invert, 'invert']);
+  if (shortcuts.folder) keys.push([shortcuts.folder, 'folder']);
   keys.push(['⏎', 'submit'], ['esc/←', 'back']);
   const helpLine = theme.style.keysHelpTip(keys);
 
