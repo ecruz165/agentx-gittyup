@@ -293,7 +293,7 @@ program
     }
     console.log();
 
-    // State machine for selection flow with back navigation
+    // State machine for selection flow with back navigation (Escape = go back)
     type State = 'mode' | 'select' | 'group' | 'tags' | 'done' | 'cancel';
     let state: State = 'mode';
     let selectionMode: 'all' | 'folder' | 'individual' = 'all';
@@ -307,229 +307,237 @@ program
     type RepoChoice = { type: 'repo'; repo: DiscoveredRepo };
     type ChoiceValue = FolderToggle | RepoChoice;
 
+    // Helper to check if error is from Escape/Ctrl+C
+    const isExitError = (err: unknown): boolean => {
+      return err instanceof Error && (err.name === 'ExitPromptError' || err.message.includes('User force closed'));
+    };
+
+    // Previous state mapping for back navigation
+    const prevState: Record<State, State> = {
+      mode: 'cancel',
+      select: 'mode',
+      group: 'select', // Will be adjusted based on selectionMode
+      tags: 'group',
+      done: 'tags',
+      cancel: 'cancel',
+    };
+
+    console.log(chalk.dim('  Tip: Press Escape to go back\n'));
+
     while (state !== 'done' && state !== 'cancel') {
-      switch (state) {
-        case 'mode': {
-          const choice = await select({
-            message: `How would you like to select from ${repos.length} repositories?`,
-            choices: [
-              { name: `Add all ${repos.length} repositories`, value: 'all' as const },
-              { name: `Select by folder (${folderCount} folders)`, value: 'folder' as const },
-              { name: 'Select individually (checkbox)', value: 'individual' as const },
-              { name: 'Cancel', value: 'cancel' as const },
-            ],
-          });
-
-          if (choice === 'cancel') {
-            state = 'cancel';
-          } else if (choice === 'all') {
-            selectionMode = 'all';
-            selected = repos;
-            console.log(chalk.dim(`\n  Selected all ${repos.length} repositories.\n`));
-            state = 'group';
-          } else {
-            selectionMode = choice;
-            state = 'select';
-          }
-          break;
-        }
-
-        case 'select': {
-          selected = [];
-
-          if (selectionMode === 'folder') {
-            const folderChoices = Array.from(folderGroups.entries()).map(([folder, folderRepos]) => ({
-              name: `📁 ${folder}/ ${chalk.dim(`(${folderRepos.length} repos)`)}`,
-              value: folder,
-              checked: false,
-            }));
-
-            console.log(chalk.dim('\n  Shortcuts: Space=toggle, A=select all, I=invert, Enter=confirm\n'));
-
-            const selectedFolders = await checkbox<string>({
-              message: 'Select folders to add:',
-              pageSize: 15,
-              loop: false,
-              choices: folderChoices,
-              shortcuts: { all: 'a', invert: 'i' },
+      try {
+        switch (state) {
+          case 'mode': {
+            const choice = await select({
+              message: `How would you like to select from ${repos.length} repositories?`,
+              choices: [
+                { name: `Add all ${repos.length} repositories`, value: 'all' as const },
+                { name: `Select by folder (${folderCount} folders)`, value: 'folder' as const },
+                { name: 'Select individually (checkbox)', value: 'individual' as const },
+                { name: 'Cancel', value: 'cancel' as const },
+              ],
             });
 
-            for (const folder of selectedFolders) {
-              const folderRepos = folderGroups.get(folder);
-              if (folderRepos) selected.push(...folderRepos);
+            if (choice === 'cancel') {
+              state = 'cancel';
+            } else if (choice === 'all') {
+              selectionMode = 'all';
+              selected = repos;
+              console.log(chalk.dim(`\n  Selected all ${repos.length} repositories.\n`));
+              state = 'group';
+            } else {
+              selectionMode = choice;
+              state = 'select';
             }
+            break;
+          }
 
-            if (selected.length > 0) {
-              console.log(chalk.dim(`\n  Selected ${selected.length} repositories from ${selectedFolders.length} folder(s).\n`));
-            }
-          } else {
-            // Individual selection
-            const choices: Array<{ name: string; value: ChoiceValue; checked: boolean } | Separator> = [];
-            for (const [folder, folderRepos] of folderGroups) {
-              choices.push(new Separator(chalk.blue(`── ${folder}/ ──`)));
-              choices.push({
-                name: chalk.cyan(`⊕ Select all in ${folder}/`),
-                value: { type: 'folder', folder } as FolderToggle,
+          case 'select': {
+            selected = [];
+
+            if (selectionMode === 'folder') {
+              const folderChoices = Array.from(folderGroups.entries()).map(([folder, folderRepos]) => ({
+                name: `📁 ${folder}/ ${chalk.dim(`(${folderRepos.length} repos)`)}`,
+                value: folder,
                 checked: false,
+              }));
+
+              console.log(chalk.dim('\n  Shortcuts: Space=toggle, A=select all, I=invert, Esc=back\n'));
+
+              const selectedFolders = await checkbox<string>({
+                message: 'Select folders to add:',
+                pageSize: 15,
+                loop: false,
+                choices: folderChoices,
+                shortcuts: { all: 'a', invert: 'i' },
               });
-              for (const r of folderRepos) {
-                const dirty = r.isDirty ? chalk.yellow(' *') : '';
+
+              for (const folder of selectedFolders) {
+                const folderRepos = folderGroups.get(folder);
+                if (folderRepos) selected.push(...folderRepos);
+              }
+
+              if (selected.length > 0) {
+                console.log(chalk.dim(`\n  Selected ${selected.length} repositories from ${selectedFolders.length} folder(s).\n`));
+              }
+            } else {
+              // Individual selection
+              const choices: Array<{ name: string; value: ChoiceValue; checked: boolean } | Separator> = [];
+              for (const [folder, folderRepos] of folderGroups) {
+                choices.push(new Separator(chalk.blue(`── ${folder}/ ──`)));
                 choices.push({
-                  name: `${r.name}${dirty} ${chalk.dim(r.currentBranch ? `[${r.currentBranch}]` : '')}`,
-                  value: { type: 'repo', repo: r } as RepoChoice,
+                  name: chalk.cyan(`⊕ Select all in ${folder}/`),
+                  value: { type: 'folder', folder } as FolderToggle,
                   checked: false,
                 });
+                for (const r of folderRepos) {
+                  const dirty = r.isDirty ? chalk.yellow(' *') : '';
+                  choices.push({
+                    name: `${r.name}${dirty} ${chalk.dim(r.currentBranch ? `[${r.currentBranch}]` : '')}`,
+                    value: { type: 'repo', repo: r } as RepoChoice,
+                    checked: false,
+                  });
+                }
               }
+
+              console.log(chalk.dim('\n  Shortcuts: Space=toggle, A=select all, I=invert, Esc=back'));
+              console.log(chalk.dim('  Tip: Select "⊕ Select all in folder/" to add entire folders\n'));
+
+              const rawSelected = await checkbox<ChoiceValue>({
+                message: 'Select repositories to add:',
+                pageSize: 15,
+                loop: false,
+                choices,
+                shortcuts: { all: 'a', invert: 'i' },
+              });
+
+              const selectedRepoSet = new Set<DiscoveredRepo>();
+              for (const item of rawSelected) {
+                if (item.type === 'folder') {
+                  const folderRepos = folderGroups.get(item.folder);
+                  if (folderRepos) folderRepos.forEach((r) => selectedRepoSet.add(r));
+                } else {
+                  selectedRepoSet.add(item.repo);
+                }
+              }
+              selected = Array.from(selectedRepoSet);
             }
 
-            console.log(chalk.dim('\n  Shortcuts: Space=toggle, A=select all, I=invert, Enter=confirm'));
-            console.log(chalk.dim('  Tip: Select "⊕ Select all in folder/" to add entire folders\n'));
+            // If nothing selected, offer to go back
+            if (selected.length === 0) {
+              const emptyAction = await select({
+                message: 'No repositories selected.',
+                choices: [
+                  { name: '← Back to selection mode', value: 'back' },
+                  { name: 'Cancel', value: 'cancel' },
+                ],
+              });
+              state = emptyAction === 'back' ? 'mode' : 'cancel';
+            } else {
+              state = 'group';
+            }
+            break;
+          }
 
-            const rawSelected = await checkbox<ChoiceValue>({
-              message: 'Select repositories to add:',
-              pageSize: 15,
-              loop: false,
-              choices,
-              shortcuts: { all: 'a', invert: 'i' },
-            });
+          case 'group': {
+            const existingGroups = manifest.getGroups().map((g) => g.name);
 
-            const selectedRepoSet = new Set<DiscoveredRepo>();
-            for (const item of rawSelected) {
-              if (item.type === 'folder') {
-                const folderRepos = folderGroups.get(item.folder);
-                if (folderRepos) folderRepos.forEach((r) => selectedRepoSet.add(r));
+            if (existingGroups.length > 0) {
+              const groupChoice = await select({
+                message: 'Add to which group?',
+                choices: [
+                  ...existingGroups.map((g) => ({ name: g, value: g })),
+                  { name: chalk.green('+ Create new group'), value: '__NEW__' },
+                ],
+              });
+
+              if (groupChoice === '__NEW__') {
+                groupName = await input({ message: 'New group name:' });
+                if (!groupName.trim()) {
+                  console.log(chalk.yellow('  Group name required.'));
+                  break; // Stay in group state
+                }
+                const groupDesc = await input({ message: 'Group description (optional):' });
+                try {
+                  manifest.createGroup(groupName, groupDesc || undefined);
+                } catch {
+                  // Group might already exist, that's ok
+                }
               } else {
-                selectedRepoSet.add(item.repo);
+                groupName = groupChoice;
               }
-            }
-            selected = Array.from(selectedRepoSet);
-          }
-
-          // If nothing selected, offer to go back
-          if (selected.length === 0) {
-            const emptyAction = await select({
-              message: 'No repositories selected.',
-              choices: [
-                { name: '← Back to selection mode', value: 'back' },
-                { name: 'Cancel', value: 'cancel' },
-              ],
-            });
-            state = emptyAction === 'back' ? 'mode' : 'cancel';
-          } else {
-            state = 'group';
-          }
-          break;
-        }
-
-        case 'group': {
-          const existingGroups = manifest.getGroups().map((g) => g.name);
-
-          if (existingGroups.length > 0) {
-            const groupChoice = await select({
-              message: 'Add to which group?',
-              choices: [
-                { name: chalk.dim('← Back'), value: '__BACK__' },
-                ...existingGroups.map((g) => ({ name: g, value: g })),
-                { name: chalk.green('+ Create new group'), value: '__NEW__' },
-              ],
-            });
-
-            if (groupChoice === '__BACK__') {
-              state = selectionMode === 'all' ? 'mode' : 'select';
-              break;
-            }
-
-            if (groupChoice === '__NEW__') {
-              groupName = await input({ message: 'New group name:' });
-              if (!groupName.trim()) {
-                console.log(chalk.yellow('  Group name required.'));
-                break; // Stay in group state
-              }
+            } else {
+              groupName = await input({ message: 'Group name:', default: 'default' });
               const groupDesc = await input({ message: 'Group description (optional):' });
               try {
                 manifest.createGroup(groupName, groupDesc || undefined);
               } catch {
-                // Group might already exist, that's ok
+                // Group might already exist
               }
-            } else {
-              groupName = groupChoice;
-            }
-          } else {
-            const backOrContinue = await select({
-              message: 'No groups exist yet.',
-              choices: [
-                { name: 'Create a new group', value: 'create' },
-                { name: chalk.dim('← Back'), value: 'back' },
-              ],
-            });
-
-            if (backOrContinue === 'back') {
-              state = selectionMode === 'all' ? 'mode' : 'select';
-              break;
             }
 
-            groupName = await input({ message: 'Group name:', default: 'default' });
-            const groupDesc = await input({ message: 'Group description (optional):' });
-            try {
-              manifest.createGroup(groupName, groupDesc || undefined);
-            } catch {
-              // Group might already exist
-            }
-          }
-
-          state = 'tags';
-          break;
-        }
-
-        case 'tags': {
-          const tagMode = await select({
-            message: 'How would you like to tag these repos?',
-            choices: [
-              { name: chalk.dim('← Back'), value: 'back' },
-              { name: 'Same tags for all', value: 'same' },
-              { name: 'Tag by folder (use folder name as tag)', value: 'folder' },
-              { name: 'No tags', value: 'none' },
-            ],
-          });
-
-          if (tagMode === 'back') {
-            state = 'group';
+            state = 'tags';
             break;
           }
 
-          repoTags = new Map<string, string[]>();
+          case 'tags': {
+            const tagMode = await select({
+              message: 'How would you like to tag these repos?',
+              choices: [
+                { name: 'Same tags for all', value: 'same' },
+                { name: 'Tag by folder (use folder name as tag)', value: 'folder' },
+                { name: 'No tags', value: 'none' },
+              ],
+            });
 
-          if (tagMode === 'same') {
-            const tagsInput = await input({ message: 'Tags (comma-separated):' });
-            const tags = tagsInput.split(',').map((t) => t.trim()).filter((t) => t.length > 0);
-            for (const repo of selected) {
-              repoTags.set(repo.name, tags);
-            }
-          } else if (tagMode === 'folder') {
-            for (const repo of selected) {
-              const parts = repo.relativePath.split('/');
-              const folder = parts.length > 1 ? parts[0] : 'root';
-              const folderTag = folder.toLowerCase().replace(/[^a-z0-9-]/g, '-');
-              repoTags.set(repo.name, [folderTag]);
-            }
-            const folderTags = new Set(Array.from(repoTags.values()).flat());
-            console.log(chalk.dim(`\n  Will apply folder tags: ${Array.from(folderTags).join(', ')}`));
+            repoTags = new Map<string, string[]>();
 
-            const additionalTags = await input({ message: 'Additional tags for all (comma-separated, or empty):' });
-            if (additionalTags.trim()) {
-              const extra = additionalTags.split(',').map((t) => t.trim()).filter((t) => t.length > 0);
-              for (const [name, tags] of repoTags) {
-                repoTags.set(name, [...tags, ...extra]);
+            if (tagMode === 'same') {
+              const tagsInput = await input({ message: 'Tags (comma-separated):' });
+              const tags = tagsInput.split(',').map((t) => t.trim()).filter((t) => t.length > 0);
+              for (const repo of selected) {
+                repoTags.set(repo.name, tags);
+              }
+            } else if (tagMode === 'folder') {
+              for (const repo of selected) {
+                const parts = repo.relativePath.split('/');
+                const folder = parts.length > 1 ? parts[0] : 'root';
+                const folderTag = folder.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+                repoTags.set(repo.name, [folderTag]);
+              }
+              const folderTags = new Set(Array.from(repoTags.values()).flat());
+              console.log(chalk.dim(`\n  Will apply folder tags: ${Array.from(folderTags).join(', ')}`));
+
+              const additionalTags = await input({ message: 'Additional tags for all (comma-separated, or empty):' });
+              if (additionalTags.trim()) {
+                const extra = additionalTags.split(',').map((t) => t.trim()).filter((t) => t.length > 0);
+                for (const [name, tags] of repoTags) {
+                  repoTags.set(name, [...tags, ...extra]);
+                }
+              }
+            } else {
+              for (const repo of selected) {
+                repoTags.set(repo.name, []);
               }
             }
-          } else {
-            for (const repo of selected) {
-              repoTags.set(repo.name, []);
-            }
-          }
 
-          state = 'done';
-          break;
+            state = 'done';
+            break;
+          }
+        }
+      } catch (err) {
+        if (isExitError(err)) {
+          // Escape pressed - go back to previous state
+          if (state === 'mode') {
+            state = 'cancel'; // Can't go back from first step
+          } else if (state === 'group' && selectionMode === 'all') {
+            state = 'mode'; // Skip select if we chose "all"
+          } else {
+            state = prevState[state];
+          }
+          console.log(chalk.dim('  ← Back\n'));
+        } else {
+          throw err; // Re-throw unexpected errors
         }
       }
     }
