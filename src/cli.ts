@@ -303,10 +303,8 @@ program
     let repoTags = new Map<string, string[]>();
     const manifest = new ManifestManager();
 
-    // Type definitions for individual selection
-    type FolderToggle = { type: 'folder'; folder: string };
-    type RepoChoice = { type: 'repo'; repo: DiscoveredRepo };
-    type ChoiceValue = FolderToggle | RepoChoice;
+    // Type for individual repo selection values
+    type RepoChoice = { repo: DiscoveredRepo };
 
     while (state !== 'done' && state !== 'cancel') {
       switch (state) {
@@ -369,20 +367,14 @@ program
               }
             } else {
               // Individual selection
-              const choices: Array<{ name: string; value: ChoiceValue; checked: boolean; group?: string } | Separator> = [];
+              const choices: Array<{ name: string; value: RepoChoice; checked: boolean; group?: string } | Separator> = [];
               for (const [folder, folderRepos] of folderGroups) {
                 choices.push(new Separator(chalk.blue(`── ${folder}/ ──`)));
-                choices.push({
-                  name: chalk.cyan(`⊕ Select all in ${folder}/`),
-                  value: { type: 'folder', folder } as FolderToggle,
-                  checked: false,
-                  group: folder,
-                });
                 for (const r of folderRepos) {
                   const dirty = r.isDirty ? chalk.yellow(' *') : '';
                   choices.push({
                     name: `${r.name}${dirty} ${chalk.dim(r.currentBranch ? `[${r.currentBranch}]` : '')}`,
-                    value: { type: 'repo', repo: r } as RepoChoice,
+                    value: { repo: r } as RepoChoice,
                     checked: false,
                     group: folder,
                   });
@@ -402,17 +394,8 @@ program
                 break;
               }
 
-              const rawSelected = result as ChoiceValue[];
-              const selectedRepoSet = new Set<DiscoveredRepo>();
-              for (const item of rawSelected) {
-                if (item.type === 'folder') {
-                  const folderRepos = folderGroups.get(item.folder);
-                  if (folderRepos) folderRepos.forEach((r) => selectedRepoSet.add(r));
-                } else if (item.type === 'repo') {
-                  selectedRepoSet.add(item.repo);
-                }
-              }
-              selected = Array.from(selectedRepoSet);
+              const rawSelected = result as RepoChoice[];
+              selected = rawSelected.map((item) => item.repo);
             }
 
             if (selected.length === 0) {
