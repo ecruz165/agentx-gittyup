@@ -164,6 +164,22 @@ export class ManifestManager {
     return repos;
   }
 
+  /** Get all repos that have a specific tag. */
+  getReposByTag(tag: string): Array<RepoConfig & { group: string }> {
+    return this.getAllRepos().filter((repo) => repo.tags.includes(tag));
+  }
+
+  /** Get all unique tags across all repos. */
+  getAllTags(): string[] {
+    const tags = new Set<string>();
+    for (const repo of this.getAllRepos()) {
+      for (const tag of repo.tags) {
+        tags.add(tag);
+      }
+    }
+    return Array.from(tags).sort();
+  }
+
   /** Create a new empty group. Throws if it already exists. */
   createGroup(name: string, description?: string): void {
     if (this.manifest.groups[name]) {
