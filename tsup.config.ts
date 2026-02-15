@@ -10,4 +10,9 @@ export default defineConfig({
   dts: false,
   splitting: false,
   shims: false,
+  external: [
+    '@inquirer/core',
+    '@inquirer/ansi',
+    '@inquirer/figures',
+  ],
 });
