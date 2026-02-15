@@ -154,6 +154,7 @@ program
       message: `How would you like to select from ${repos.length} repositories?`,
       choices: [
         { name: `Add all ${repos.length} repositories`, value: 'all' },
+        { name: `Select by folder (${folderCount} folders)`, value: 'folder' },
         { name: 'Select individually (checkbox)', value: 'individual' },
         { name: 'Cancel', value: 'cancel' },
       ],
@@ -167,6 +168,38 @@ program
     if (selectionMode === 'all') {
       selected = repos;
       console.log(chalk.dim(`\n  Selected all ${repos.length} repositories.\n`));
+    } else if (selectionMode === 'folder') {
+      // Build folder choices
+      const folderChoices = Array.from(folderGroups.entries()).map(([folder, folderRepos]) => ({
+        name: `📁 ${folder}/ ${chalk.dim(`(${folderRepos.length} repos)`)}`,
+        value: folder,
+        checked: false,
+      }));
+
+      console.log(chalk.dim('\n  Shortcuts: Space=toggle, A=select all, I=invert, Enter=confirm\n'));
+
+      const selectedFolders = await checkbox<string>({
+        message: 'Select folders to add:',
+        pageSize: 15,
+        loop: false,
+        choices: folderChoices,
+        shortcuts: {
+          all: 'a',
+          invert: 'i',
+        },
+      });
+
+      // Collect all repos from selected folders
+      for (const folder of selectedFolders) {
+        const folderRepos = folderGroups.get(folder);
+        if (folderRepos) {
+          selected.push(...folderRepos);
+        }
+      }
+
+      if (selectedFolders.length > 0) {
+        console.log(chalk.dim(`\n  Selected ${selected.length} repositories from ${selectedFolders.length} folder(s).\n`));
+      }
     } else {
       // Build choices grouped by folder with separators
       const choices: Array<{ name: string; value: DiscoveredRepo; checked: boolean } | Separator> = [];
