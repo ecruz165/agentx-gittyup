@@ -129,15 +129,47 @@ program
     }
     console.log();
 
-    // Select repos to add
-    const selected = await checkbox<DiscoveredRepo>({
-      message: 'Select repositories to add to manifest:',
-      choices: repos.map((r) => ({
-        name: `${r.name} ${chalk.dim(`(${r.relativePath})`)}`,
-        value: r,
-        checked: true,
-      })),
+    // Select repos to add - with better UX for large lists
+    let selected: DiscoveredRepo[] = [];
+
+    // First ask about bulk selection
+    const selectionMode = await select({
+      message: `How would you like to select from ${repos.length} repositories?`,
+      choices: [
+        { name: `Add all ${repos.length} repositories`, value: 'all' },
+        { name: 'Select individually (checkbox)', value: 'individual' },
+        { name: 'Cancel', value: 'cancel' },
+      ],
     });
+
+    if (selectionMode === 'cancel') {
+      console.log(chalk.yellow('\n  Cancelled.\n'));
+      return;
+    }
+
+    if (selectionMode === 'all') {
+      selected = repos;
+      console.log(chalk.dim(`\n  Selected all ${repos.length} repositories.\n`));
+    } else {
+      // Show numbered list for reference
+      console.log(chalk.bold('\n  Repository list:\n'));
+      repos.forEach((r, i) => {
+        const dirty = r.isDirty ? chalk.yellow(' *') : '';
+        console.log(chalk.dim(`  ${String(i + 1).padStart(3)}. `) + chalk.white(r.name) + dirty + chalk.dim(` — ${r.relativePath}`));
+      });
+      console.log(chalk.dim('\n  Use ↑↓ to navigate, Space to toggle, A to toggle all, Enter to confirm\n'));
+
+      selected = await checkbox<DiscoveredRepo>({
+        message: 'Select repositories to add:',
+        pageSize: 15,
+        loop: false,
+        choices: repos.map((r, i) => ({
+          name: `${String(i + 1).padStart(3)}. ${r.name} ${chalk.dim(`(${r.relativePath})`)}`,
+          value: r,
+          checked: true,
+        })),
+      });
+    }
 
     if (selected.length === 0) {
       console.log(chalk.yellow('\n  No repositories selected.\n'));
