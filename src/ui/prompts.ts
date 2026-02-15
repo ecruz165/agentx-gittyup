@@ -384,10 +384,16 @@ export interface NewGroupRequest {
 /** Result returned by groupAssigner: BACK, a NewGroupRequest (with current assignments), or a confirmed Map */
 export type GroupAssignerResult = BackSymbol | NewGroupRequest | Map<string, string>;
 
+/** A repo entry for the group assigner — name is required, path is optional (shown dimmed). */
+export interface GroupAssignerRepo {
+  name: string;
+  path?: string;
+}
+
 interface GroupAssignerConfig {
   message: string;
-  /** Repo names to assign */
-  repos: string[];
+  /** Repos to assign */
+  repos: GroupAssignerRepo[];
   /** Available group names (index 0 = Undefined, rest are 1-based) */
   groups: string[];
   /** Pre-existing assignments (repo name → group name). Unassigned repos default to 'Undefined'. */
@@ -422,7 +428,7 @@ export const groupAssigner = createPrompt<GroupAssignerResult, GroupAssignerConf
   const [assignments, setAssignments] = useState<Map<string, string>>(() => {
     const map = new Map<string, string>();
     for (const repo of config.repos) {
-      map.set(repo, config.assignments?.get(repo) ?? 'Undefined');
+      map.set(repo.name, config.assignments?.get(repo.name) ?? 'Undefined');
     }
     return map;
   });
@@ -446,10 +452,10 @@ export const groupAssigner = createPrompt<GroupAssignerResult, GroupAssignerConf
       }
     } else if (key.name === 'up' || (key.name === 'k' && !key.ctrl)) {
       setError(undefined);
-      setActive(active <= 0 ? repos.length - 1 : active - 1);
+      if (active > 0) setActive(active - 1);
     } else if (key.name === 'down' || (key.name === 'j' && !key.ctrl)) {
       setError(undefined);
-      setActive(active >= repos.length - 1 ? 0 : active + 1);
+      if (active < repos.length - 1) setActive(active + 1);
     } else if ((key as any).sequence === '+' || key.name === '+' || (key.name === '=' && key.shift)) {
       setStatus('done');
       done({ action: 'new_group', assignments: new Map(assignments) } as GroupAssignerResult);
@@ -460,7 +466,7 @@ export const groupAssigner = createPrompt<GroupAssignerResult, GroupAssignerConf
         setError(undefined);
         const repo = repos[active];
         const newMap = new Map(assignments);
-        newMap.set(repo, groups[digit]);
+        newMap.set(repo.name, groups[digit]);
         setAssignments(newMap);
         // Auto-advance to next repo
         if (active < repos.length - 1) setActive(active + 1);
@@ -501,10 +507,10 @@ export const groupAssigner = createPrompt<GroupAssignerResult, GroupAssignerConf
 
   // Build repo lines grouped under their assigned group header
   // Collect repos by group, preserving group order
-  const reposByGroup = new Map<string, { repo: string; idx: number }[]>();
+  const reposByGroup = new Map<string, { repo: GroupAssignerRepo; idx: number }[]>();
   for (const g of groups) reposByGroup.set(g, []);
   for (let i = 0; i < repos.length; i++) {
-    const group = assignments.get(repos[i]) ?? 'Undefined';
+    const group = assignments.get(repos[i].name) ?? 'Undefined';
     reposByGroup.get(group)!.push({ repo: repos[i], idx: i });
   }
 
@@ -517,8 +523,9 @@ export const groupAssigner = createPrompt<GroupAssignerResult, GroupAssignerConf
     groupedLines.push({ line: styleText(headerColor, `  ── ${gIdx}:${g} (${members.length}) ──`), repoIdx: null });
     for (const { repo, idx } of members) {
       const cursor = idx === active ? styleText('cyan', figures.pointer) : ' ';
-      const name = idx === active ? styleText('bold', repo) : repo;
-      groupedLines.push({ line: `  ${cursor} ${name}`, repoIdx: idx });
+      const name = idx === active ? styleText('bold', repo.name) : repo.name;
+      const pathSuffix = repo.path ? styleText('dim', ` ${repo.path}`) : '';
+      groupedLines.push({ line: `  ${cursor} ${name}${pathSuffix}`, repoIdx: idx });
     }
   }
 

@@ -428,7 +428,7 @@ program
             while (true) {
               const result = await groupAssigner({
                 message: 'Assign repos to groups (press 0-9 to assign):',
-                repos: selected.map((r) => r.name),
+                repos: selected.map((r) => ({ name: r.name, path: r.relativePath })),
                 groups: groupsList,
                 assignments: currentAssignments,
                 pageSize: 20,
