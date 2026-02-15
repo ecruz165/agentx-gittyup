@@ -25,6 +25,7 @@ export const RepoConfigSchema = z.object({
   remote: z.string().default('origin'),
   url: z.string().optional(),
   branches: BranchMapSchema,
+  tags: z.array(z.string()).default([]),
 });
 
 export type RepoConfig = z.infer<typeof RepoConfigSchema>;

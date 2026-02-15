@@ -1,10 +1,11 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { confirm } from '@inquirer/prompts';
+import { confirm, checkbox, input, select } from '@inquirer/prompts';
 import ora from 'ora';
 import { ManifestManager } from './config/manifest.js';
 import { Orchestrator } from './core/orchestrator.js';
 import { CliCache } from './core/cache.js';
+import { RepoFinder, type DiscoveredRepo } from './core/repo-finder.js';
 import { Dashboard } from './ui/dashboard.js';
 import { gatherCompareData, renderCompare } from './ui/compare.js';
 import { GitHubClient } from './github/client.js';
@@ -85,6 +86,124 @@ repoCmd
         const branchStr = Object.entries(repo.branches).map(([a, b]) => `${a}:${b}`).join(', ');
         console.log(`    ${chalk.white(repo.name)} ${chalk.dim(repo.path)} ${chalk.dim(`[${branchStr}]`)}`);
       }
+    }
+    console.log();
+  });
+
+// ═══════════════════════════════════════════════════════════════════════
+// find
+// ═══════════════════════════════════════════════════════════════════════
+
+program
+  .command('find')
+  .description('Find git repos recursively and add them to the manifest')
+  .argument('[directory]', 'Directory to search (default: current directory)', '.')
+  .option('-d, --depth <n>', 'Maximum search depth', '5')
+  .option('--no-metadata', 'Skip fetching repo metadata (faster)')
+  .action(async (directory: string, opts: { depth: string; metadata?: boolean }) => {
+    const searchDir = directory.startsWith('/') ? directory : process.cwd() + '/' + directory;
+    const spinner = ora('Scanning for git repositories...').start();
+
+    const finder = new RepoFinder(searchDir, {
+      maxDepth: parseInt(opts.depth, 10),
+      includeMetadata: opts.metadata !== false,
+    });
+
+    const repos = await finder.find((path) => {
+      spinner.text = `Found: ${path}`;
+    });
+
+    spinner.stop();
+
+    if (repos.length === 0) {
+      console.log(chalk.yellow('\n  No git repositories found.\n'));
+      return;
+    }
+
+    console.log(chalk.bold(`\n  Found ${repos.length} git repositories:\n`));
+    for (const repo of repos) {
+      const dirty = repo.isDirty ? chalk.yellow(' (dirty)') : '';
+      const branch = repo.currentBranch ? chalk.dim(` [${repo.currentBranch}]`) : '';
+      console.log(`    ${chalk.white(repo.name)}${branch}${dirty}`);
+      console.log(chalk.dim(`      ${repo.relativePath}`));
+    }
+    console.log();
+
+    // Select repos to add
+    const selected = await checkbox<DiscoveredRepo>({
+      message: 'Select repositories to add to manifest:',
+      choices: repos.map((r) => ({
+        name: `${r.name} ${chalk.dim(`(${r.relativePath})`)}`,
+        value: r,
+        checked: true,
+      })),
+    });
+
+    if (selected.length === 0) {
+      console.log(chalk.yellow('\n  No repositories selected.\n'));
+      return;
+    }
+
+    // Get or create group
+    const manifest = new ManifestManager();
+    const existingGroups = manifest.getGroups().map((g) => g.name);
+
+    let groupName: string;
+    if (existingGroups.length > 0) {
+      const groupChoice = await select({
+        message: 'Add to which group?',
+        choices: [
+          ...existingGroups.map((g) => ({ name: g, value: g })),
+          { name: chalk.green('+ Create new group'), value: '__NEW__' },
+        ],
+      });
+
+      if (groupChoice === '__NEW__') {
+        groupName = await input({ message: 'New group name:' });
+        const groupDesc = await input({ message: 'Group description (optional):' });
+        manifest.createGroup(groupName, groupDesc || undefined);
+      } else {
+        groupName = groupChoice;
+      }
+    } else {
+      groupName = await input({ message: 'Group name:', default: 'default' });
+      const groupDesc = await input({ message: 'Group description (optional):' });
+      manifest.createGroup(groupName, groupDesc || undefined);
+    }
+
+    // Ask for tags
+    const tagsInput = await input({
+      message: 'Tags for selected repos (comma-separated, or empty for none):',
+    });
+    const tags = tagsInput
+      .split(',')
+      .map((t) => t.trim())
+      .filter((t) => t.length > 0);
+
+    // Add repos to manifest
+    let added = 0;
+    for (const repo of selected) {
+      const repoConfig: RepoConfig = {
+        name: repo.name,
+        path: repo.relativePath,
+        remote: 'origin',
+        url: repo.remoteUrl,
+        branches: { dev: 'develop', staging: 'staging', prod: 'main' },
+        tags,
+      };
+
+      try {
+        manifest.addRepo(groupName, repoConfig);
+        added++;
+      } catch (err: any) {
+        console.log(chalk.yellow(`  ⚠ Skipped ${repo.name}: ${err.message}`));
+      }
+    }
+
+    manifest.save();
+    console.log(chalk.green(`\n  ✓ Added ${added} repo(s) to group "${groupName}"`));
+    if (tags.length > 0) {
+      console.log(chalk.dim(`    Tags: ${tags.join(', ')}`));
     }
     console.log();
   });
