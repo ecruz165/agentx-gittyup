@@ -323,6 +323,20 @@ program
       cancel: 'cancel',
     };
 
+    // Shared theme for consistent help tips across all prompts
+    const selectTheme = {
+      style: {
+        keysHelpTip: (keys: [string, string][]) =>
+          keys.map(([key, label]) => `${key}=${label}`).join(' | ') + ' | ← Back=return to previous step',
+      },
+    };
+    const checkboxTheme = {
+      style: {
+        keysHelpTip: (keys: [string, string][]) =>
+          keys.map(([key, label]) => `${key}=${label}`).join(' | ') + ' | ← Back=return to previous step',
+      },
+    };
+
     while (state !== 'done' && state !== 'cancel') {
       try {
         switch (state) {
@@ -335,6 +349,12 @@ program
                 { name: 'Select individually (checkbox)', value: 'individual' as const },
                 { name: chalk.dim('Cancel'), value: 'cancel' as const },
               ],
+              theme: {
+                style: {
+                  keysHelpTip: (keys: [string, string][]) =>
+                    keys.map(([key, label]) => `${key}=${label}`).join(' | '),
+                },
+              },
             });
 
             if (choice === 'cancel') {
@@ -365,14 +385,13 @@ program
                 })),
               ];
 
-              console.log(chalk.dim('\n  Shortcuts: Space=toggle, A=select all, I=invert\n'));
-
               const selectedFolders = await checkbox<string>({
                 message: 'Select folders to add:',
                 pageSize: 15,
                 loop: false,
                 choices: folderChoices,
                 shortcuts: { all: 'a', invert: 'i' },
+                theme: checkboxTheme,
               });
 
               if (selectedFolders.includes('__BACK__')) {
@@ -410,15 +429,19 @@ program
                 }
               }
 
-              console.log(chalk.dim('\n  Shortcuts: Space=toggle, A=select all, I=invert'));
-              console.log(chalk.dim('  Tip: Select "⊕ Select all in folder/" to add entire folders\n'));
-
               const rawSelected = await checkbox<ChoiceValue>({
                 message: 'Select repositories to add:',
                 pageSize: 15,
                 loop: false,
                 choices,
                 shortcuts: { all: 'a', invert: 'i' },
+                theme: {
+                  style: {
+                    keysHelpTip: (keys: [string, string][]) =>
+                      keys.map(([key, label]) => `${key}=${label}`).join(' | ') +
+                      ' | ← Back=return | ⊕=select entire folder',
+                  },
+                },
               });
 
               // Check if back was selected
@@ -448,6 +471,7 @@ program
                   { name: '← Back to selection mode', value: 'back' },
                   { name: 'Cancel', value: 'cancel' },
                 ],
+                theme: selectTheme,
               });
               state = emptyAction === 'back' ? 'mode' : 'cancel';
             } else {
@@ -467,6 +491,7 @@ program
                   ...existingGroups.map((g) => ({ name: g, value: g })),
                   { name: chalk.green('+ Create new group'), value: '__NEW__' },
                 ],
+                theme: selectTheme,
               });
 
               if (groupChoice === '__BACK__') {
@@ -496,6 +521,7 @@ program
                   { name: chalk.dim('← Back'), value: '__BACK__' },
                   { name: 'Create a new group', value: 'create' },
                 ],
+                theme: selectTheme,
               });
 
               if (backOrCreate === '__BACK__') {
@@ -525,6 +551,7 @@ program
                 { name: 'Tag by folder (use folder name as tag)', value: 'folder' },
                 { name: 'No tags', value: 'none' },
               ],
+              theme: selectTheme,
             });
 
             if (tagMode === 'back') {
