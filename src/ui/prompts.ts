@@ -85,6 +85,7 @@ export const selectWithBack = createPrompt<any, SelectConfig<any>>((config, done
   const { loop = true, pageSize = 7 } = config;
   const theme = makeTheme(defaultSelectTheme, config.theme);
   const [status, setStatus] = useState<Status>('idle');
+  const [isBack, setIsBack] = useState(false);
   const prefix = usePrefix({ status, theme });
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
@@ -108,6 +109,7 @@ export const selectWithBack = createPrompt<any, SelectConfig<any>>((config, done
     clearTimeout(searchTimeoutRef.current);
 
     if (isBackKey(key)) {
+      setIsBack(true);
       setStatus('done');
       done(BACK as any);
     } else if (isEnterKey(key)) {
@@ -163,6 +165,7 @@ export const selectWithBack = createPrompt<any, SelectConfig<any>>((config, done
   });
 
   if (status === 'done') {
+    if (isBack) return '';
     const answer = theme.style.answer(selectedChoice.short ?? selectedChoice.name);
     return `${prefix} ${message} ${answer}`;
   }
@@ -252,6 +255,7 @@ export const checkboxWithBack = createPrompt<any, CheckboxConfig<any>>((config, 
   const shortcuts = { all: 'a', invert: 'i', ...config.shortcuts };
   const theme = makeTheme(defaultCheckboxTheme, config.theme);
   const [status, setStatus] = useState<Status>('idle');
+  const [isBack, setIsBack] = useState(false);
   const prefix = usePrefix({ status, theme });
   const [items, setItems] = useState(normalizeCheckboxChoices(config.choices));
 
@@ -267,6 +271,7 @@ export const checkboxWithBack = createPrompt<any, CheckboxConfig<any>>((config, 
 
   useKeypress(async (key) => {
     if (isBackKey(key)) {
+      setIsBack(true);
       setStatus('done');
       done(BACK as any);
     } else if (isEnterKey(key)) {
@@ -343,6 +348,7 @@ export const checkboxWithBack = createPrompt<any, CheckboxConfig<any>>((config, 
   });
 
   if (status === 'done') {
+    if (isBack) return '';
     const selection = items.filter(isChecked);
     const answer = theme.style.answer(theme.style.renderSelectedChoices(selection, items));
     return [prefix, message, answer].filter(Boolean).join(' ');
