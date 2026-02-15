@@ -201,23 +201,35 @@ program
         console.log(chalk.dim(`\n  Selected ${selected.length} repositories from ${selectedFolders.length} folder(s).\n`));
       }
     } else {
-      // Build choices grouped by folder with separators
-      const choices: Array<{ name: string; value: DiscoveredRepo; checked: boolean } | Separator> = [];
+      // Build choices grouped by folder with separators and folder toggles
+      // Use a discriminated union type for folder toggles vs repos
+      type FolderToggle = { type: 'folder'; folder: string };
+      type RepoChoice = { type: 'repo'; repo: DiscoveredRepo };
+      type ChoiceValue = FolderToggle | RepoChoice;
+
+      const choices: Array<{ name: string; value: ChoiceValue; checked: boolean } | Separator> = [];
       for (const [folder, folderRepos] of folderGroups) {
         choices.push(new Separator(chalk.blue(`── ${folder}/ ──`)));
+        // Add folder toggle option
+        choices.push({
+          name: chalk.cyan(`⊕ Select all in ${folder}/`),
+          value: { type: 'folder', folder } as FolderToggle,
+          checked: false,
+        });
         for (const r of folderRepos) {
           const dirty = r.isDirty ? chalk.yellow(' *') : '';
           choices.push({
             name: `${r.name}${dirty} ${chalk.dim(r.currentBranch ? `[${r.currentBranch}]` : '')}`,
-            value: r,
+            value: { type: 'repo', repo: r } as RepoChoice,
             checked: false,
           });
         }
       }
 
-      console.log(chalk.dim('\n  Shortcuts: Space=toggle, A=select all, I=invert, Enter=confirm\n'));
+      console.log(chalk.dim('\n  Shortcuts: Space=toggle, A=select all, I=invert, Enter=confirm'));
+      console.log(chalk.dim('  Tip: Select "⊕ Select all in folder/" to add entire folders\n'));
 
-      selected = await checkbox<DiscoveredRepo>({
+      const rawSelected = await checkbox<ChoiceValue>({
         message: 'Select repositories to add:',
         pageSize: 15,
         loop: false,
@@ -227,6 +239,23 @@ program
           invert: 'i',
         },
       });
+
+      // Process selections: expand folder toggles to all repos in that folder
+      const selectedRepoSet = new Set<DiscoveredRepo>();
+      for (const item of rawSelected) {
+        if (item.type === 'folder') {
+          // Add all repos from this folder
+          const folderRepos = folderGroups.get(item.folder);
+          if (folderRepos) {
+            for (const repo of folderRepos) {
+              selectedRepoSet.add(repo);
+            }
+          }
+        } else {
+          selectedRepoSet.add(item.repo);
+        }
+      }
+      selected = Array.from(selectedRepoSet);
     }
 
     if (selected.length === 0) {
