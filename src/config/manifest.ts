@@ -1,11 +1,10 @@
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, dirname, resolve, isAbsolute } from 'node:path';
 import { homedir } from 'node:os';
 import yaml from 'js-yaml';
 import { ManifestSchema } from './schema.js';
 import type { Manifest, RepoConfig, RepoGroup } from './schema.js';
-
-const DEFAULT_MANIFEST_NAME = 'gittyup.yaml';
+import { APP_NAME, APP_CONFIG_DIR, APP_REPO_URL, MANIFEST_FILENAME } from './branding.js';
 
 const DEFAULT_PR_TEMPLATE = [
   '## {{operation}} from `{{source_branch}}` → `{{target_branch}}`',
@@ -15,7 +14,7 @@ const DEFAULT_PR_TEMPLATE = [
   '**Commits:** {{commit_count}}',
   '',
   '---',
-  '_Created by [gittyup](https://github.com/ecruz165/gittyup)_',
+  `_Created by [${APP_NAME}](${APP_REPO_URL})_`,
 ].join('\n');
 
 /**
@@ -34,15 +33,17 @@ export class ManifestManager {
   // ─── Discovery ─────────────────────────────────────────────────────
 
   private findManifest(): string {
+    // Walk up from CWD looking for a local manifest
     let dir = process.cwd();
     while (true) {
-      const candidate = join(dir, DEFAULT_MANIFEST_NAME);
+      const candidate = join(dir, MANIFEST_FILENAME);
       if (existsSync(candidate)) return candidate;
       const parent = dirname(dir);
       if (parent === dir) break;
       dir = parent;
     }
-    return join(process.cwd(), DEFAULT_MANIFEST_NAME);
+    // Fall back to the default config directory
+    return join(APP_CONFIG_DIR, MANIFEST_FILENAME);
   }
 
   // ─── Load / Save ──────────────────────────────────────────────────
@@ -80,8 +81,9 @@ export class ManifestManager {
 
   /** Create a new manifest file. Throws if one already exists. */
   static init(dir?: string): ManifestManager {
-    const targetDir = dir ?? process.cwd();
-    const filePath = join(targetDir, DEFAULT_MANIFEST_NAME);
+    const targetDir = dir ?? APP_CONFIG_DIR;
+    mkdirSync(targetDir, { recursive: true });
+    const filePath = join(targetDir, MANIFEST_FILENAME);
 
     if (existsSync(filePath)) {
       throw new Error(`Manifest already exists at ${filePath}`);

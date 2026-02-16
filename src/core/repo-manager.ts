@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { ManifestManager } from '../config/manifest.js';
 import { GitOperations } from './git-operations.js';
 import type { RepoConfig, RepoGroup, RepoState } from '../config/schema.js';
+import { APP_NAME } from '../config/branding.js';
 
 /**
  * Manages loaded repos and their git instances.
@@ -51,7 +52,7 @@ export class RepoManager {
     const repo = allRepos.find((r) => r.name === target);
     if (repo) return [repo];
 
-    throw new Error(`"${target}" is not a known group or repo. Run "gittyup repo list" to see available repos and groups.`);
+    throw new Error(`"${target}" is not a known group or repo. Run "${APP_NAME} repo list" to see available repos and groups.`);
   }
 
   /** Get branch state for all repos (or filtered by target). */

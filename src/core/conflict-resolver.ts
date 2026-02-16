@@ -2,6 +2,7 @@ import { select, editor, confirm } from '@inquirer/prompts';
 import chalk from 'chalk';
 import { GitOperations } from './git-operations.js';
 import type { AiMode, ConflictFile, ConflictSession, RepoConfig } from '../config/schema.js';
+import { APP_NAME } from '../config/branding.js';
 
 /** Callbacks for pluggable AI resolution and progress reporting. */
 export interface ResolutionCallbacks {
@@ -70,7 +71,7 @@ export class ConflictResolver {
       const shouldCommit = await confirm({ message: 'Commit the resolution?', default: true });
       if (shouldCommit) {
         const hash = await this.git.commitResolution(
-          `resolve: ${operation} ${sourceBranch} → ${targetBranch} via gittyup`,
+          `resolve: ${operation} ${sourceBranch} → ${targetBranch} via ${APP_NAME}`,
         );
         console.log(chalk.green(`  Committed: ${hash}`));
       }

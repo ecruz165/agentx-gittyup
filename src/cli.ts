@@ -5,6 +5,7 @@ import { confirm, checkbox, input, select, Separator } from '@inquirer/prompts';
 import { selectWithBack, checkboxWithBack, groupAssigner, tagAssigner, BACK, type NewGroupRequest, type NewTagRequest } from './ui/prompts.js';
 import ora from 'ora';
 import { ManifestManager } from './config/manifest.js';
+import { APP_NAME } from './config/branding.js';
 import { Orchestrator } from './core/orchestrator.js';
 import { CliCache } from './core/cache.js';
 import { RepoFinder, type DiscoveredRepo } from './core/repo-finder.js';
@@ -16,7 +17,7 @@ import type { AiMode, MergeTarget, CherryPickTarget, RepoConfig, PRInfo } from '
 const program = new Command();
 
 program
-  .name('gittyup')
+  .name(APP_NAME)
   .description('Multi-repo orchestration CLI with interactive conflict resolution')
   .version('0.1.0');
 
@@ -26,14 +27,14 @@ program
 
 program
   .command('init')
-  .description('Initialize a new gittyup workspace')
+  .description(`Initialize a new ${APP_NAME} workspace`)
   .option('-d, --dir <path>', 'Directory for the manifest', '.')
   .action(async (opts: { dir: string }) => {
     try {
       const mgr = ManifestManager.init(opts.dir);
       console.log(chalk.green(`✓ Created ${mgr.manifestPath}`));
       console.log(chalk.dim('  Edit the manifest to add your repos, or use:'));
-      console.log(chalk.dim('    gittyup repo add <group> <name> <path>'));
+      console.log(chalk.dim(`    ${APP_NAME} repo add <group> <name> <path>`));
     } catch (err: any) {
       console.error(chalk.red(err.message));
       process.exit(1);
@@ -80,7 +81,7 @@ repoCmd
     const manifest = new ManifestManager();
     const groups = manifest.getGroups();
     if (groups.length === 0) {
-      console.log(chalk.yellow('No repos configured. Use: gittyup repo add <group> <name> <path>'));
+      console.log(chalk.yellow(`No repos configured. Use: ${APP_NAME} repo add <group> <name> <path>`));
       return;
     }
     for (const group of groups) {
@@ -221,7 +222,7 @@ repoCmd
     }
 
     if (tagCounts.size === 0) {
-      console.log(chalk.yellow('\n  No tags defined. Use: gittyup repo tag\n'));
+      console.log(chalk.yellow(`\n  No tags defined. Use: ${APP_NAME} repo tag\n`));
       return;
     }
 
@@ -892,7 +893,7 @@ authCmd
     const { fetchCopilotModels } = await import('./auth/token-manager.js');
     const models = await fetchCopilotModels();
     if (!models) {
-      console.log(chalk.yellow('  Could not fetch models. Run "gittyup auth login" first.'));
+      console.log(chalk.yellow(`  Could not fetch models. Run "${APP_NAME} auth login" first.`));
       return;
     }
     console.log(chalk.bold(`\n  Available Copilot Models (${models.length}):\n`));

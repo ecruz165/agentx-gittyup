@@ -1,7 +1,6 @@
 import { readFile, writeFile, unlink, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { homedir } from 'node:os';
+import { dirname } from 'node:path';
 import { execSync } from 'node:child_process';
 import chalk from 'chalk';
 import {
@@ -18,30 +17,28 @@ import {
   type TokenSource,
   type CopilotModelEntry,
 } from './types.js';
-
-const AUTH_DIR = join(homedir(), '.gittyup');
-const AUTH_FILE = join(AUTH_DIR, 'auth.json');
+import { APP_NAME, APP_CONFIG_DIR, APP_APP_AUTH_FILE, APP_CONFIG_DIR_DISPLAY } from '../config/branding.js';
 
 // ─── Credential Storage ─────────────────────────────────────────────
 
 /** Read and parse auth.json. Returns null if missing or invalid. */
 export async function readAuthCredentials(): Promise<AuthCredentials | null> {
-  if (!existsSync(AUTH_FILE)) return null;
+  if (!existsSync(APP_AUTH_FILE)) return null;
   try {
-    const raw = await readFile(AUTH_FILE, 'utf-8');
+    const raw = await readFile(APP_AUTH_FILE, 'utf-8');
     return AuthCredentialsSchema.parse(JSON.parse(raw));
   } catch { return null; }
 }
 
 /** Write credentials to auth.json. Creates parent directory if needed. */
 export async function writeAuthCredentials(creds: AuthCredentials): Promise<void> {
-  if (!existsSync(AUTH_DIR)) await mkdir(AUTH_DIR, { recursive: true });
-  await writeFile(AUTH_FILE, JSON.stringify(creds, null, 2), 'utf-8');
+  if (!existsSync(APP_CONFIG_DIR)) await mkdir(APP_CONFIG_DIR, { recursive: true });
+  await writeFile(APP_AUTH_FILE, JSON.stringify(creds, null, 2), 'utf-8');
 }
 
 /** Delete auth.json. */
 export async function deleteAuthCredentials(): Promise<void> {
-  if (existsSync(AUTH_FILE)) await unlink(AUTH_FILE);
+  if (existsSync(APP_AUTH_FILE)) await unlink(APP_AUTH_FILE);
 }
 
 // ─── GitHub Token Resolution ────────────────────────────────────────
@@ -64,7 +61,7 @@ export async function resolveGitHubToken(): Promise<TokenSource | null> {
     return { token: process.env.GH_TOKEN, source: 'env:GH_TOKEN' };
   }
 
-  // 2. auth.json (from `gittyup auth login` device flow)
+  // 2. auth.json (from device flow login)
   const creds = await readAuthCredentials();
   if (creds?.github_token) {
     return { token: creds.github_token, source: 'auth.json' };
@@ -105,12 +102,12 @@ export async function requireGitHubToken(): Promise<TokenSource> {
     [
       'Could not find a GitHub token. Tried:',
       '  1. $GITHUB_TOKEN / $GH_TOKEN env vars',
-      '  2. ~/.gittyup/auth.json (gittyup auth login)',
+      `  2. ${APP_CONFIG_DIR_DISPLAY}/auth.json (${APP_NAME} auth login)`,
       '  3. gh auth token (GitHub CLI)',
       '  4. git credential fill (git credential helper)',
       '',
       'To fix, do one of:',
-      '  • gittyup auth login     (OAuth device flow → Copilot)',
+      `  • ${APP_NAME} auth login     (OAuth device flow → Copilot)`,
       '  • gh auth login',
       '  • export GITHUB_TOKEN=ghp_...',
     ].join('\n'),
@@ -255,7 +252,7 @@ export async function printAuthStatus(): Promise<void> {
 
   if (!tokenSource) {
     console.log(chalk.red('  ✗ No GitHub token found'));
-    console.log(chalk.dim('    Run: gittyup auth login  or  gh auth login  or  export GITHUB_TOKEN=ghp_...'));
+    console.log(chalk.dim(`    Run: ${APP_NAME} auth login  or  gh auth login  or  export GITHUB_TOKEN=ghp_...`));
     return;
   }
 
@@ -264,7 +261,7 @@ export async function printAuthStatus(): Promise<void> {
   const sourceLabels: Record<string, string> = {
     'env:GITHUB_TOKEN': 'environment variable ($GITHUB_TOKEN)',
     'env:GH_TOKEN': 'environment variable ($GH_TOKEN)',
-    'auth.json': 'gittyup auth login (device flow)',
+    'auth.json': `${APP_NAME} auth login (device flow)`,
     'gh-cli': 'gh auth (GitHub CLI)',
     'git-credential': 'git credential helper',
   };

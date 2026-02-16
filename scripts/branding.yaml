@@ -3,31 +3,26 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 # This file defines all brand-related values for the CLI tool.
 # Run `npm run rebrand` after making changes to update all source files.
+#
+# The two root values — appGroupName and appName — drive everything else.
+# All other fields are derived from them by default but can be overridden.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# CLI tool name (used in commands, help text, etc.)
-cli_name: gittyup
+# ─── Root brand primitives ────────────────────────────────────────────────────
+# appGroupName: umbrella org/suite name (e.g., agentx → ~/.agentx/)
+# appName:      this tool's name (e.g., gittyup → CLI name, config subdir, manifest)
+appGroupName: agentx
+appName: gittyup
 
-# Package name for npm (can differ from cli_name)
-package_name: gittyup
-
+# ─── Derived values (override individually if needed) ─────────────────────────
 # Tool description
 description: Multi-repo orchestration CLI with interactive conflict resolution
 
 # Version
 version: 0.1.0
 
-# Binary/executable name (what users type to run the tool)
-bin_name: gittyup
-
-# Config file name (e.g., gittyup.yaml)
-config_file: gittyup.yaml
-
-# Config directory in user's home (e.g., ~/.gittyup)
-config_dir: .gittyup
-
 # GitHub repository URL
-repo_url: https://github.com/ecruz165/gittyup
+repo_url: https://github.com/ecruz165/agentx-gittyup
 
 # Author/organization
 author: ecruz165
@@ -49,6 +44,7 @@ keywords:
 # ═══════════════════════════════════════════════════════════════════════════════
 files_to_update:
   - package.json
+  - src/config/branding.ts
   - src/cli.ts
   - src/config/manifest.ts
   - src/core/cache.ts

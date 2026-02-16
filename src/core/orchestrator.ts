@@ -8,6 +8,7 @@ import { callCopilot } from '../auth/token-manager.js';
 import { resolveGitHubToken } from '../auth/token-manager.js';
 import { Dashboard } from '../ui/dashboard.js';
 import { ManifestManager } from '../config/manifest.js';
+import { APP_NAME } from '../config/branding.js';
 import type {
   AiMode, CherryPickTarget, ConflictFile, MergeTarget, OperationResult, RepoConfig,
 } from '../config/schema.js';
@@ -190,7 +191,7 @@ export class Orchestrator {
           .replace('{{target_branch}}', target.targetBranch)
           .replace('{{repo_name}}', target.repo.name)
           .replace('{{commit_count}}', 'N/A');
-        const pr = await gh.createPR({ owner, repo, title: `[gittyup] ${operation}: ${target.sourceBranch} → ${target.targetBranch}`, body, head, base: target.targetBranch, labels: ['gittyup'] });
+        const pr = await gh.createPR({ owner, repo, title: `[${APP_NAME}] ${operation}: ${target.sourceBranch} → ${target.targetBranch}`, body, head, base: target.targetBranch, labels: [APP_NAME] });
         if (pr.url) result.prUrl = pr.url;
       } catch (err) {
         console.log(chalk.yellow(`  Could not create PR for ${result.repo}: ${err}`));
@@ -205,7 +206,7 @@ export class Orchestrator {
       // Check if Copilot auth is available
       const tokenSource = await resolveGitHubToken();
       if (!tokenSource) {
-        console.log(chalk.dim('\n  [AI] No GitHub token found. Run "gittyup auth login" for Copilot access.'));
+        console.log(chalk.dim(`\n  [AI] No GitHub token found. Run "${APP_NAME} auth login" for Copilot access.`));
         return null;
       }
 

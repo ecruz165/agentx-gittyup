@@ -1,5 +1,17 @@
 export { ManifestManager } from './manifest.js';
 export {
+  APP_GROUP_NAME,
+  APP_NAME,
+  CONFIG_PARENT_DIR,
+  CONFIG_DIR_NAME,
+  APP_REPO_URL,
+  MANIFEST_FILENAME,
+  APP_CONFIG_DIR,
+  APP_AUTH_FILE,
+  APP_CACHE_DIR,
+  APP_CONFIG_DIR_DISPLAY,
+} from './branding.js';
+export {
   ManifestSchema,
   ManifestSettingsSchema,
   RepoConfigSchema,

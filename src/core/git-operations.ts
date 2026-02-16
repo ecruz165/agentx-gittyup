@@ -2,6 +2,7 @@ import simpleGit, { type SimpleGit, type StatusResult } from 'simple-git';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { RepoBranchState, RepoState, ConflictFile } from '../config/schema.js';
+import { APP_NAME } from '../config/branding.js';
 
 /**
  * Low-level git operations for a single repository.
@@ -220,7 +221,7 @@ export class GitOperations {
   }
 
   async commitResolution(message?: string): Promise<string> {
-    await this.git.commit(message ?? 'Resolve conflicts via gittyup');
+    await this.git.commit(message ?? `Resolve conflicts via ${APP_NAME}`);
     const log = await this.git.log({ maxCount: 1 });
     return log.latest?.hash ?? 'unknown';
   }

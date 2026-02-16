@@ -1,10 +1,8 @@
 import { readFileSync, writeFileSync, existsSync, readdirSync, unlinkSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
 import chalk from 'chalk';
-
-const CACHE_DIR = join(homedir(), '.gittyup', 'cache');
+import { APP_APP_CACHE_DIR } from '../config/branding.js';
 const DEFAULT_TTL_MS = 5 * 60 * 1000;
 
 interface CacheEntry<T> {
@@ -19,14 +17,14 @@ interface CacheEntry<T> {
 /**
  * File-based CLI result cache with configurable TTL.
  * Cache is keyed on a SHA-256 hash of command + args.
- * Stored under ~/.gittyup/cache/.
+ * Stored under APP_CACHE_DIR (see branding.ts).
  */
 export class CliCache {
   private cacheDir: string;
   private ttlMs: number;
 
   constructor(ttlMs = DEFAULT_TTL_MS) {
-    this.cacheDir = CACHE_DIR;
+    this.cacheDir = APP_CACHE_DIR;
     this.ttlMs = ttlMs;
     if (!existsSync(this.cacheDir)) mkdirSync(this.cacheDir, { recursive: true });
   }

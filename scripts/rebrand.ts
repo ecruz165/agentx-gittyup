@@ -10,14 +10,32 @@ import { readFileSync, writeFileSync, existsSync, renameSync, mkdirSync } from '
 import { join, dirname, basename } from 'node:path';
 import yaml from 'js-yaml';
 
+/** Raw YAML shape — only appGroupName and appName are required. */
+interface BrandingYaml {
+  appGroupName: string;
+  appName: string;
+  description?: string;
+  version?: string;
+  repo_url?: string;
+  author?: string;
+  license?: string;
+  keywords?: string[];
+  files_to_update?: string[];
+  files_to_rename?: Array<{ from: string; to: string }>;
+}
+
+/** Fully resolved branding config with all derived values. */
 interface BrandingConfig {
+  appGroupName: string;
+  appName: string;
   cli_name: string;
   package_name: string;
-  description: string;
-  version: string;
   bin_name: string;
   config_file: string;
-  config_dir: string;
+  config_parent_dir: string;
+  config_dir_name: string;
+  description: string;
+  version: string;
   repo_url: string;
   author: string;
   license: string;
@@ -27,33 +45,69 @@ interface BrandingConfig {
 }
 
 const ROOT_DIR = join(import.meta.dirname, '..');
-const BRANDING_FILE = join(ROOT_DIR, 'branding.yaml');
+const BRANDING_FILE = join(ROOT_DIR, 'scripts', 'branding.yaml');
 
-// Default values (current branding) - used for replacement patterns
+// Current branding — used as the "find" side of find-and-replace.
+const CURRENT_APP_GROUP_NAME = 'agentx';
+const CURRENT_APP_NAME = 'gittyup';
+
 const DEFAULTS = {
-  cli_name: 'gittyup',
-  package_name: 'gittyup',
-  bin_name: 'gittyup',
-  config_file: 'gittyup.yaml',
-  config_dir: '.gittyup',
-  repo_url: 'https://github.com/ecruz165/gittyup',
+  appGroupName: CURRENT_APP_GROUP_NAME,
+  appName: CURRENT_APP_NAME,
+  cli_name: CURRENT_APP_NAME,
+  package_name: CURRENT_APP_NAME,
+  bin_name: CURRENT_APP_NAME,
+  config_file: `${CURRENT_APP_NAME}.yaml`,
+  config_parent_dir: `.${CURRENT_APP_GROUP_NAME}`,
+  config_dir_name: CURRENT_APP_NAME,
+  repo_url: `https://github.com/ecruz165/agentx-${CURRENT_APP_NAME}`,
   author: 'ecruz165',
 };
+
+/** Derive all branding values from the two root primitives + optional overrides. */
+function resolveBranding(raw: BrandingYaml): BrandingConfig {
+  const { appGroupName, appName } = raw;
+  return {
+    appGroupName,
+    appName,
+    cli_name: appName,
+    package_name: appName,
+    bin_name: appName,
+    config_file: `${appName}.yaml`,
+    config_parent_dir: `.${appGroupName}`,
+    config_dir_name: appName,
+    description: raw.description ?? 'Multi-repo orchestration CLI with interactive conflict resolution',
+    version: raw.version ?? '0.1.0',
+    repo_url: raw.repo_url ?? `https://github.com/ecruz165/agentx-${appName}`,
+    author: raw.author ?? 'ecruz165',
+    license: raw.license ?? 'MIT',
+    keywords: raw.keywords ?? ['git', 'multi-repo', 'cherry-pick', 'merge', 'conflict-resolution', 'cli'],
+    files_to_update: raw.files_to_update ?? [],
+    files_to_rename: raw.files_to_rename ?? [],
+  };
+}
 
 function loadBranding(): BrandingConfig {
   if (!existsSync(BRANDING_FILE)) {
     throw new Error(`Branding file not found: ${BRANDING_FILE}`);
   }
   const content = readFileSync(BRANDING_FILE, 'utf-8');
-  return yaml.load(content) as BrandingConfig;
+  const raw = yaml.load(content) as BrandingYaml;
+  if (!raw.appGroupName || !raw.appName) {
+    throw new Error('branding.yaml must define appGroupName and appName');
+  }
+  return resolveBranding(raw);
 }
 
 function interpolate(template: string, brand: BrandingConfig): string {
   return template
+    .replace(/\{\{appGroupName\}\}/g, brand.appGroupName)
+    .replace(/\{\{appName\}\}/g, brand.appName)
     .replace(/\{\{cli_name\}\}/g, brand.cli_name)
     .replace(/\{\{bin_name\}\}/g, brand.bin_name)
     .replace(/\{\{config_file\}\}/g, brand.config_file)
-    .replace(/\{\{config_dir\}\}/g, brand.config_dir)
+    .replace(/\{\{config_parent_dir\}\}/g, brand.config_parent_dir)
+    .replace(/\{\{config_dir_name\}\}/g, brand.config_dir_name)
     .replace(/\{\{repo_url\}\}/g, brand.repo_url)
     .replace(/\{\{author\}\}/g, brand.author);
 }
@@ -68,16 +122,18 @@ function updateFileContent(filePath: string, brand: BrandingConfig): boolean {
   let content = readFileSync(fullPath, 'utf-8');
   const original = content;
 
-  // Replace old values with new values
+  // Replace old values with new values (order matters — specific patterns first)
   const replacements: Array<[RegExp, string]> = [
-    // CLI name references
-    [new RegExp(`\\b${DEFAULTS.cli_name}\\b`, 'g'), brand.cli_name],
-    // Config file references
-    [new RegExp(DEFAULTS.config_file.replace('.', '\\.'), 'g'), brand.config_file],
-    // Config dir references (e.g., ~/.gittyup)
-    [new RegExp(DEFAULTS.config_dir.replace('.', '\\.'), 'g'), brand.config_dir],
-    // Repo URL
+    // Repo URL (most specific, replace first to avoid partial matches)
     [new RegExp(DEFAULTS.repo_url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), brand.repo_url],
+    // Config file references (e.g., gittyup.yaml)
+    [new RegExp(DEFAULTS.config_file.replace('.', '\\.'), 'g'), brand.config_file],
+    // Config parent dir references (e.g., .agentx)
+    [new RegExp(DEFAULTS.config_parent_dir.replace('.', '\\.'), 'g'), brand.config_parent_dir],
+    // App group name (e.g., agentx as a word)
+    [new RegExp(`\\b${DEFAULTS.appGroupName}\\b`, 'g'), brand.appGroupName],
+    // App name / CLI name (e.g., gittyup as a word)
+    [new RegExp(`\\b${DEFAULTS.appName}\\b`, 'g'), brand.appName],
     // Author
     [new RegExp(`\\b${DEFAULTS.author}\\b`, 'g'), brand.author],
   ];
@@ -149,7 +205,8 @@ async function main(): Promise<void> {
   console.log('\n🎨 Rebrand Script\n');
 
   const brand = loadBranding();
-  console.log(`  Brand: ${brand.cli_name} (${brand.package_name}@${brand.version})\n`);
+  console.log(`  Group: ${brand.appGroupName}`);
+  console.log(`  App:   ${brand.appName} (${brand.package_name}@${brand.version})\n`);
 
   console.log('📝 Updating file contents...\n');
   for (const file of brand.files_to_update) {
