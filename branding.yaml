@@ -1,0 +1,30 @@
+# Rebrand configuration — change these values and run `npm run rebrand`
+appGroupName: agentx
+appGroupInitials: ax
+appName: gittyup
+
+# Optional overrides (uncomment to customize):
+# description: "CLI-based project task generator with complexity scoring and auto-decomposition"
+# version: "0.1.0"
+# repo_url: ""
+# author: ""
+# license: "MIT"
+# keywords:
+#   - cli
+#   - task
+#   - project
+#   - complexity
+#   - scoring
+
+# Files to update (glob patterns relative to project root)
+files_to_update:
+  - "src/**/*.ts"
+  - "bin/**/*.js"
+  - "package.json"
+  - "CLAUDE.md"
+  - "README.md"
+
+# Files to rename (use {{appGroupName}} and {{appName}} placeholders)
+files_to_rename:
+  - from: "bin/agentx-gittyup.js"
+    to: "bin/{{appGroupName}}-{{appName}}.js"

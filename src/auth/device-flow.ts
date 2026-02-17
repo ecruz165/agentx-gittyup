@@ -37,7 +37,8 @@ export async function requestDeviceCode(): Promise<DeviceCodeResponse> {
 
 /**
  * Poll GitHub for the OAuth token after the user has entered the device code.
- * Handles: authorization_pending, slow_down, expired_token, access_denied.
+ * Handles: authorization_pending (continue), slow_down (increase interval),
+ * expired_token (abort), access_denied (abort).
  */
 export async function pollForToken(
   deviceCode: string,
@@ -72,8 +73,10 @@ export async function pollForToken(
 
     switch (data.error) {
       case 'authorization_pending':
+        // User hasn't entered the code yet, keep polling
         continue;
       case 'slow_down':
+        // Increase interval by 5 seconds per GitHub spec
         pollInterval += 5;
         continue;
       case 'expired_token':
@@ -101,7 +104,9 @@ async function fetchUsername(githubToken: string): Promise<string> {
     },
   });
 
-  if (!response.ok) return 'unknown';
+  if (!response.ok) {
+    return 'unknown';
+  }
 
   const data = (await response.json()) as { login?: string };
   return data.login ?? 'unknown';

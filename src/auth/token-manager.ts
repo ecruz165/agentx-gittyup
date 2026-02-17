@@ -1,120 +1,147 @@
 import { readFile, writeFile, unlink, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { execFile } from 'node:child_process';
 import { dirname } from 'node:path';
-import { execSync } from 'node:child_process';
 import chalk from 'chalk';
+import { getHomePath } from '../utils/home.js';
+import { CLI_BIN_NAME, APP_CONFIG_DIR_DISPLAY } from '../config/branding.js';
 import {
   AuthCredentialsSchema,
+  AuthFileSchema,
   COPILOT_TOKEN_URL,
   COPILOT_CHAT_URL,
   COPILOT_MODELS_URL,
   EDITOR_VERSION,
   TOKEN_REFRESH_THRESHOLD,
   type AuthCredentials,
+  type AuthFile,
   type CopilotTokenResponse,
   type ChatCompletionMessage,
   type ChatCompletionResponse,
   type TokenSource,
   type CopilotModelEntry,
 } from './types.js';
-import { APP_NAME, APP_CONFIG_DIR, APP_APP_AUTH_FILE, APP_CONFIG_DIR_DISPLAY } from '../config/branding.js';
 
-// ─── Credential Storage ─────────────────────────────────────────────
+const AUTH_FILE = 'auth.json';
 
-/** Read and parse auth.json. Returns null if missing or invalid. */
-export async function readAuthCredentials(): Promise<AuthCredentials | null> {
-  if (!existsSync(APP_AUTH_FILE)) return null;
-  try {
-    const raw = await readFile(APP_AUTH_FILE, 'utf-8');
-    return AuthCredentialsSchema.parse(JSON.parse(raw));
-  } catch { return null; }
+function getAuthPath(): string {
+  return getHomePath(AUTH_FILE);
 }
-
-/** Write credentials to auth.json. Creates parent directory if needed. */
-export async function writeAuthCredentials(creds: AuthCredentials): Promise<void> {
-  if (!existsSync(APP_CONFIG_DIR)) await mkdir(APP_CONFIG_DIR, { recursive: true });
-  await writeFile(APP_AUTH_FILE, JSON.stringify(creds, null, 2), 'utf-8');
-}
-
-/** Delete auth.json. */
-export async function deleteAuthCredentials(): Promise<void> {
-  if (existsSync(APP_AUTH_FILE)) await unlink(APP_AUTH_FILE);
-}
-
-// ─── GitHub Token Resolution ────────────────────────────────────────
-// Cascading lookup:
-//   1. $GITHUB_TOKEN / $GH_TOKEN  (env var override)
-//   2. auth.json                   (device flow login)
-//   3. `gh auth token`             (GitHub CLI)
-//   4. `git credential fill`       (git credential helper)
 
 /**
- * Resolve a GitHub OAuth token from all available sources.
- * Returns token and its source, or null if none found.
+ * Read and parse auth.json. Returns null if file is missing or invalid.
  */
-export async function resolveGitHubToken(): Promise<TokenSource | null> {
-  // 1. Env vars
-  if (process.env.GITHUB_TOKEN) {
-    return { token: process.env.GITHUB_TOKEN, source: 'env:GITHUB_TOKEN' };
+export async function readAuthCredentials(): Promise<AuthCredentials | null> {
+  const authPath = getAuthPath();
+  if (!existsSync(authPath)) {
+    return null;
   }
-  if (process.env.GH_TOKEN) {
-    return { token: process.env.GH_TOKEN, source: 'env:GH_TOKEN' };
+  try {
+    const raw = await readFile(authPath, 'utf-8');
+    const parsed = JSON.parse(raw);
+    return AuthCredentialsSchema.parse(parsed);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Write credentials to auth.json. Creates parent directory if needed.
+ */
+export async function writeAuthCredentials(creds: AuthCredentials): Promise<void> {
+  const authPath = getAuthPath();
+  const dir = dirname(authPath);
+  if (!existsSync(dir)) {
+    await mkdir(dir, { recursive: true });
+  }
+  await writeFile(authPath, JSON.stringify(creds, null, 2), 'utf-8');
+}
+
+/**
+ * Delete auth.json.
+ */
+export async function deleteAuthCredentials(): Promise<void> {
+  const authPath = getAuthPath();
+  if (existsSync(authPath)) {
+    await unlink(authPath);
+  }
+}
+
+// --- Multi-provider auth file (new format) ---
+
+/**
+ * Read auth.json in the new multi-provider format.
+ * Auto-migrates from legacy flat format (Copilot-only) if detected.
+ * Returns a valid AuthFile — empty providers if file is missing.
+ */
+export async function readAuthFile(): Promise<AuthFile> {
+  const authPath = getAuthPath();
+  if (!existsSync(authPath)) {
+    return { active_provider: 'copilot' };
   }
 
-  // 2. auth.json (from device flow login)
+  try {
+    const raw = await readFile(authPath, 'utf-8');
+    const parsed = JSON.parse(raw);
+
+    // Detect legacy flat format: has github_token at top level, no active_provider
+    if (parsed.github_token && !parsed.active_provider) {
+      // Auto-migrate: wrap under copilot key
+      const migrated: AuthFile = {
+        active_provider: 'copilot',
+        copilot: {
+          github_token: parsed.github_token,
+          copilot_token: parsed.copilot_token,
+          copilot_token_expires_at: parsed.copilot_token_expires_at,
+          username: parsed.username,
+        },
+      };
+      // Persist the migrated format
+      await writeAuthFile(migrated);
+      return migrated;
+    }
+
+    return AuthFileSchema.parse(parsed);
+  } catch {
+    return { active_provider: 'copilot' };
+  }
+}
+
+/**
+ * Write auth.json in multi-provider format. Creates parent directory if needed.
+ */
+export async function writeAuthFile(authFile: AuthFile): Promise<void> {
+  const authPath = getAuthPath();
+  const dir = dirname(authPath);
+  if (!existsSync(dir)) {
+    await mkdir(dir, { recursive: true });
+  }
+  await writeFile(authPath, JSON.stringify(authFile, null, 2), 'utf-8');
+}
+
+/**
+ * Resolve the GitHub OAuth token from environment variables or auth.json.
+ * Precedence: COPILOT_GITHUB_TOKEN > GITHUB_TOKEN > auth.json
+ * Returns token and its source, or null if no token is available.
+ */
+export async function resolveGitHubToken(): Promise<TokenSource | null> {
+  const copilotEnv = process.env.COPILOT_GITHUB_TOKEN;
+  if (copilotEnv) {
+    return { token: copilotEnv, source: 'env:COPILOT_GITHUB_TOKEN' };
+  }
+
+  const githubEnv = process.env.GITHUB_TOKEN;
+  if (githubEnv) {
+    return { token: githubEnv, source: 'env:GITHUB_TOKEN' };
+  }
+
   const creds = await readAuthCredentials();
   if (creds?.github_token) {
     return { token: creds.github_token, source: 'auth.json' };
   }
 
-  // 3. GitHub CLI
-  const ghToken = tryGhAuthToken();
-  if (ghToken) return { token: ghToken, source: 'gh-cli' };
-
-  // 4. Git credential helper
-  const gitToken = tryGitCredentialFill();
-  if (gitToken) return { token: gitToken, source: 'git-credential' };
-
   return null;
 }
-
-function tryGhAuthToken(): string | null {
-  try {
-    const token = execSync('gh auth token', { encoding: 'utf-8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'] }).trim();
-    return token.length > 0 ? token : null;
-  } catch { return null; }
-}
-
-function tryGitCredentialFill(): string | null {
-  try {
-    const output = execSync('git credential fill', { input: 'protocol=https\nhost=github.com\n\n', encoding: 'utf-8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'] });
-    const match = output.match(/^password=(.+)$/m);
-    return match ? match[1].trim() : null;
-  } catch { return null; }
-}
-
-/** Resolve token or throw with a helpful error. */
-export async function requireGitHubToken(): Promise<TokenSource> {
-  const result = await resolveGitHubToken();
-  if (result) return result;
-
-  throw new Error(
-    [
-      'Could not find a GitHub token. Tried:',
-      '  1. $GITHUB_TOKEN / $GH_TOKEN env vars',
-      `  2. ${APP_CONFIG_DIR_DISPLAY}/auth.json (${APP_NAME} auth login)`,
-      '  3. gh auth token (GitHub CLI)',
-      '  4. git credential fill (git credential helper)',
-      '',
-      'To fix, do one of:',
-      `  • ${APP_NAME} auth login     (OAuth device flow → Copilot)`,
-      '  • gh auth login',
-      '  • export GITHUB_TOKEN=ghp_...',
-    ].join('\n'),
-  );
-}
-
-// ─── Copilot Token Management ───────────────────────────────────────
 
 /**
  * Fetch a Copilot API token using the GitHub OAuth token.
@@ -141,7 +168,9 @@ export async function getCopilotToken(githubToken: string): Promise<string> {
 
   if (!response.ok) {
     const body = await response.text().catch(() => '');
-    throw new Error(`Failed to get Copilot token (${response.status}): ${body || response.statusText}`);
+    throw new Error(
+      `Failed to get Copilot token (${response.status}): ${body || response.statusText}`,
+    );
   }
 
   const data = (await response.json()) as CopilotTokenResponse;
@@ -158,17 +187,18 @@ export async function getCopilotToken(githubToken: string): Promise<string> {
   return data.token;
 }
 
-// ─── Copilot API ────────────────────────────────────────────────────
-
 /**
- * General-purpose Copilot chat completion call.
- * Handles authentication, token refresh, 401 retry, and 429 rate limiting.
+ * General-purpose Copilot API call. Handles authentication, token refresh, and 401 retry.
+ * This is the reusable entry point for T-7 (expansion) and T-9 (skill inference).
  */
 export async function callCopilot(
   messages: ChatCompletionMessage[],
   model: string,
 ): Promise<ChatCompletionResponse> {
-  const tokenSource = await requireGitHubToken();
+  const tokenSource = await resolveGitHubToken();
+  if (!tokenSource) {
+    throw new Error(`Not authenticated. Run "${CLI_BIN_NAME} auth login" first.`);
+  }
 
   const doRequest = async (copilotToken: string): Promise<Response> => {
     return fetch(COPILOT_CHAT_URL, {
@@ -189,8 +219,9 @@ export async function callCopilot(
   let copilotToken = await getCopilotToken(tokenSource.token);
   let response = await doRequest(copilotToken);
 
-  // Reactive retry on 401
+  // Reactive retry on 401 (token may have been revoked or clock skew)
   if (response.status === 401) {
+    // Invalidate cached token and fetch a new one
     const creds = await readAuthCredentials();
     if (creds) {
       creds.copilot_token = undefined;
@@ -201,7 +232,7 @@ export async function callCopilot(
     response = await doRequest(copilotToken);
   }
 
-  // Handle 429 rate limiting
+  // Handle rate limiting (429)
   if (response.status === 429) {
     const retryAfter = response.headers.get('retry-after');
     const waitSeconds = retryAfter ? parseInt(retryAfter, 10) : 10;
@@ -211,19 +242,24 @@ export async function callCopilot(
 
   if (!response.ok) {
     const body = await response.text().catch(() => '');
-    throw new Error(`Copilot API error (${response.status}): ${body || response.statusText}`);
+    throw new Error(
+      `Copilot API error (${response.status}): ${body || response.statusText}`,
+    );
   }
 
   return (await response.json()) as ChatCompletionResponse;
 }
 
 /**
- * Fetch the list of models available to the authenticated user.
+ * Fetch the list of models available to the authenticated user from the Copilot API.
+ * Returns an array of model entries with IDs and capability metadata.
  * Returns null if not authenticated or the API call fails.
  */
 export async function fetchCopilotModels(): Promise<CopilotModelEntry[] | null> {
   const tokenSource = await resolveGitHubToken();
-  if (!tokenSource) return null;
+  if (!tokenSource) {
+    return null;
+  }
 
   try {
     const copilotToken = await getCopilotToken(tokenSource.token);
@@ -237,54 +273,89 @@ export async function fetchCopilotModels(): Promise<CopilotModelEntry[] | null> 
       },
     });
 
-    if (!response.ok) return null;
+    if (!response.ok) {
+      return null;
+    }
 
     const data = await response.json() as { data?: CopilotModelEntry[] };
     return Array.isArray(data.data) ? data.data : null;
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
-// ─── Status Display ─────────────────────────────────────────────────
+// --- Gittyup-specific helpers (not in taskmaster base) ---
 
-/** Print detailed auth status for diagnostics. */
+/**
+ * Run a shell command and return stdout. Returns null on failure.
+ */
+function runCommand(cmd: string, args: string[]): Promise<string | null> {
+  return new Promise((resolve) => {
+    execFile(cmd, args, { timeout: 5000 }, (err, stdout) => {
+      resolve(err ? null : stdout.trim() || null);
+    });
+  });
+}
+
+/**
+ * Resolve a GitHub token, throwing if none is found.
+ * Extended cascade: env vars → auth.json → gh CLI → git credentials.
+ */
+export async function requireGitHubToken(): Promise<TokenSource> {
+  // First try the standard resolution
+  const source = await resolveGitHubToken();
+  if (source) return source;
+
+  // Try GitHub CLI
+  const ghToken = await runCommand('gh', ['auth', 'token']);
+  if (ghToken) {
+    return { token: ghToken, source: 'auth.json' as const };
+  }
+
+  // Try git credential helper
+  const gitToken = await new Promise<string | null>((resolve) => {
+    const child = execFile(
+      'git',
+      ['credential', 'fill'],
+      { timeout: 5000 },
+      (err, stdout) => {
+        if (err) { resolve(null); return; }
+        const match = stdout.match(/password=(.+)/);
+        resolve(match ? match[1].trim() : null);
+      },
+    );
+    child.stdin?.write('protocol=https\nhost=github.com\n\n');
+    child.stdin?.end();
+  });
+
+  if (gitToken) {
+    return { token: gitToken, source: 'auth.json' as const };
+  }
+
+  throw new Error(
+    `No GitHub token found. Run "${CLI_BIN_NAME} auth login" or set GITHUB_TOKEN.`,
+  );
+}
+
+/**
+ * Print authentication status to console.
+ */
 export async function printAuthStatus(): Promise<void> {
   const tokenSource = await resolveGitHubToken();
 
-  if (!tokenSource) {
-    console.log(chalk.red('  ✗ No GitHub token found'));
-    console.log(chalk.dim(`    Run: ${APP_NAME} auth login  or  gh auth login  or  export GITHUB_TOKEN=ghp_...`));
-    return;
-  }
+  if (tokenSource) {
+    console.log(chalk.green(`    GitHub Token: ✓ (source: ${tokenSource.source})`));
+    console.log(chalk.dim(`    Config: ${APP_CONFIG_DIR_DISPLAY}/auth.json`));
 
-  const masked = `${tokenSource.token.substring(0, 8)}...${tokenSource.token.slice(-4)}`;
-
-  const sourceLabels: Record<string, string> = {
-    'env:GITHUB_TOKEN': 'environment variable ($GITHUB_TOKEN)',
-    'env:GH_TOKEN': 'environment variable ($GH_TOKEN)',
-    'auth.json': `${APP_NAME} auth login (device flow)`,
-    'gh-cli': 'gh auth (GitHub CLI)',
-    'git-credential': 'git credential helper',
-  };
-
-  console.log(chalk.green(`  ✓ GitHub token: ${sourceLabels[tokenSource.source]}`));
-  console.log(chalk.dim(`    ${masked}`));
-
-  // Check Copilot access
-  const creds = await readAuthCredentials();
-  if (creds?.copilot_token && creds.copilot_token_expires_at) {
-    const now = Math.floor(Date.now() / 1000);
-    const remaining = creds.copilot_token_expires_at - now;
-    if (remaining > 0) {
-      const mins = Math.floor(remaining / 60);
-      console.log(chalk.green(`  ✓ Copilot token: valid (${mins}m remaining)`));
-    } else {
-      console.log(chalk.yellow('  ⟳ Copilot token: expired (will refresh on next use)'));
+    // Check Copilot access
+    try {
+      await getCopilotToken(tokenSource.token);
+      console.log(chalk.green('    Copilot:      ✓ accessible'));
+    } catch {
+      console.log(chalk.yellow('    Copilot:      ✗ not accessible'));
     }
   } else {
-    console.log(chalk.dim('  ○ Copilot token: not yet obtained (will fetch on first AI call)'));
-  }
-
-  if (creds?.username) {
-    console.log(chalk.dim(`  ○ User: ${creds.username}`));
+    console.log(chalk.red('    GitHub Token: ✗ not found'));
+    console.log(chalk.dim(`    Run "${CLI_BIN_NAME} auth login" to authenticate.`));
   }
 }

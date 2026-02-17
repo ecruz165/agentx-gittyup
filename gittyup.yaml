@@ -1,0 +1,16 @@
+workspace: .
+groups: {}
+settings:
+  ai_mode: suggest
+  github:
+    token_env: GITHUB_TOKEN
+  conflict_branch_prefix: conflict-resolution
+  pr_template: |-
+    ## {{operation}} from `{{source_branch}}` → `{{target_branch}}`
+
+    **Repo:** {{repo_name}}
+    **Operation:** {{operation}}
+    **Commits:** {{commit_count}}
+
+    ---
+    _Created by [gittyup](https://github.com/ecruz165/agentx-gittyup)_

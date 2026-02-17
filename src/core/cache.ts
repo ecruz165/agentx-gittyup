@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync, existsSync, readdirSync, unlinkSync, mkdir
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import chalk from 'chalk';
-import { APP_APP_CACHE_DIR } from '../config/branding.js';
+import { APP_CACHE_DIR } from '../config/branding.js';
 const DEFAULT_TTL_MS = 5 * 60 * 1000;
 
 interface CacheEntry<T> {

@@ -5,6 +5,8 @@ import yaml from 'js-yaml';
 import { ManifestSchema } from './schema.js';
 import type { Manifest, RepoConfig, RepoGroup } from './schema.js';
 import { APP_NAME, APP_CONFIG_DIR, APP_REPO_URL, MANIFEST_FILENAME } from './branding.js';
+import { detectGitRoot, getRepoConfigHome } from '../utils/git.js';
+import type { ConfigLocation, ResolvedConfig } from '../utils/location.js';
 
 const DEFAULT_PR_TEMPLATE = [
   '## {{operation}} from `{{source_branch}}` → `{{target_branch}}`',
@@ -18,32 +20,74 @@ const DEFAULT_PR_TEMPLATE = [
 ].join('\n');
 
 /**
+ * Resolve the manifest path and config location without loading or parsing.
+ * Used by the postAction hook to display the config path cheaply.
+ */
+export function resolveManifestPath(): ResolvedConfig {
+  const gitRoot = detectGitRoot();
+
+  // 1. Check repo-local config
+  if (gitRoot) {
+    const repoDir = getRepoConfigHome(gitRoot);
+    const repoManifest = join(repoDir, MANIFEST_FILENAME);
+    if (existsSync(repoManifest)) {
+      return { location: 'repo', configDir: repoDir, manifestPath: repoManifest, gitRoot };
+    }
+  }
+
+  // 2. Walk up from CWD looking for a bare manifest (backwards compat)
+  let dir = process.cwd();
+  while (true) {
+    const candidate = join(dir, MANIFEST_FILENAME);
+    if (existsSync(candidate)) {
+      return { location: 'home', configDir: dir, manifestPath: candidate, gitRoot };
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+
+  // 3. Fall back to global config directory
+  return {
+    location: 'home',
+    configDir: APP_CONFIG_DIR,
+    manifestPath: join(APP_CONFIG_DIR, MANIFEST_FILENAME),
+    gitRoot,
+  };
+}
+
+/**
  * Manages the gittyup.yaml manifest file.
  * Handles loading, validation (via Zod), saving, and repo/group CRUD.
  */
 export class ManifestManager {
   private manifest: Manifest;
   private filePath: string;
+  private _configLocation: ConfigLocation;
+  private _configDir: string;
 
   constructor(filePath?: string) {
-    this.filePath = filePath ?? this.findManifest();
+    if (filePath) {
+      this.filePath = filePath;
+      this._configDir = dirname(filePath);
+      this._configLocation = filePath.startsWith(APP_CONFIG_DIR) ? 'home' : 'repo';
+    } else {
+      const resolved = resolveManifestPath();
+      this.filePath = resolved.manifestPath;
+      this._configDir = resolved.configDir;
+      this._configLocation = resolved.location;
+    }
     this.manifest = this.load();
   }
 
   // ─── Discovery ─────────────────────────────────────────────────────
 
-  private findManifest(): string {
-    // Walk up from CWD looking for a local manifest
-    let dir = process.cwd();
-    while (true) {
-      const candidate = join(dir, MANIFEST_FILENAME);
-      if (existsSync(candidate)) return candidate;
-      const parent = dirname(dir);
-      if (parent === dir) break;
-      dir = parent;
-    }
-    // Fall back to the default config directory
-    return join(APP_CONFIG_DIR, MANIFEST_FILENAME);
+  get configLocation(): ConfigLocation {
+    return this._configLocation;
+  }
+
+  get configDir(): string {
+    return this._configDir;
   }
 
   // ─── Load / Save ──────────────────────────────────────────────────
